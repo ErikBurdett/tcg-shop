@@ -1,0 +1,1 @@
+"""TCG shop simulator package."""

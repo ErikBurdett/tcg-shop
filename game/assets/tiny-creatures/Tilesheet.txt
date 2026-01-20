@@ -1,0 +1,13 @@
+Tilesheet information:
+
+Tile size                 •  16px × 16px
+Space between tiles       •  1px × 1px
+---
+Total tiles (horizontal)  •  10 tiles
+Total tiles (vertical)    •  18 tiles
+---
+Total tiles in sheet      •  180 tiles
+
+
+Note: I've set these creatures to all face right (except where symmetrical).
+You may choose to horizonally-flip these sprites when creatures are facing left.
