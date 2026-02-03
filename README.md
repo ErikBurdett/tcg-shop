@@ -33,72 +33,97 @@ python main.py
 5. Battle AI in Battle.
 6. Save/load via Menu.
 
-## Current Features
-### Shop & Economy
-- Place shop objects (shelves, counter, poster) on a grid.
-- Run a shop day with customer traffic and sales.
-- Dynamic pricing and shelf stocking (manual restock).
-- Money, day counter, and sales summary.
-- Customers path to shelves and counter, then exit.
+## Asset Specs
+### Global Pixel Sizes
+- Window size: `1600x900` (resizable)
+- Base resolution: `1600x900`
+- Shop grid tile size: `48x48`
 
-### Inventory & Management
-- Booster packs, decks, and singles tracked by rarity.
-- Order boosters, decks, and singles (immediate delivery).
-- Stock shelves from inventory, fill to capacity.
-- Select shelves via list or by clicking the shelf tile.
+### Card Art Sizes
+- Card art target size: `64x64` in shop view
+- Card art target size: `96x96` in pack reveal
+- Card background size: `160x220` in pack reveal
 
-### Cards & Packs
-- Booster packs generate 5 cards with rarity distribution.
-- Card collection and deck building (20-card deck rule, max 2 copies).
-- Card assets with rarity-based backgrounds and borders.
+### Shop Art Sizes
+- Floor tiles: scaled to `48x48`
+- Furniture sprites: source `16x16`, scaled to `48x48`
+- Customer sprites: source `32x32`, scaled to `40x40` in shop
 
-### Battle
-- Simple AI battle loop using deck lists.
-- Turn-based flow and basic combat resolution.
+### Asset Structure & Naming
+- Card art
+  - `game/assets/tiny-creatures/Tiles/tile_####.png` (individual tiles)
+  - `game/assets/dungeon-crawl-utumno.png` (tilesheet, 32x32 grid)
+- Shop art
+  - `game/assets/shop/tiles/floor_#.png` (floor tiles)
+  - `game/assets/shop/tiles/customer_#.png` (customers)
+  - `game/assets/shop/furniture.png` (16x16 furniture sheet)
 
-### UX & Tools
-- Unified single-screen UI with tabs (Shop, Packs, Deck, Manage, Battle).
-- Resizable window and responsive UI layout.
-- Moveable/resizable Manage panels.
-- Dev console (money, packs, deckfill).
-- Save/load game state.
+## Feature Checklist
+### Implemented
+- [x] Shop grid placement (shelves, counter, poster)
+- [x] Customer traffic and purchases
+- [x] Inventory ordering and shelf stocking
+- [x] Booster pack generation and collection
+- [x] Deck build rules (20 cards, max 2 copies)
+- [x] Battle flow with AI
+- [x] Unified single-screen UI tabs
+- [x] Save/load system
+- [x] Dev console commands
 
-## Missing / Incomplete
-### Shop Management
-- No tutorial or guided onboarding for new players.
-- No staff upgrades, marketing, or store upgrades.
-- No shop customization beyond basic placements.
-- No constraints/validation for placement overlaps.
+### Not Implemented / Incomplete
+- [ ] Pricing controls in unified Manage UI
+- [ ] Delayed order delivery (orders are instant)
+- [ ] Auto-restock / demand forecasting
+- [ ] Pack opening FX and pack artwork
+- [ ] Collection browser with filters/sorting
+- [ ] Battle rewards + progression loop
+- [ ] Placement rules / collision constraints
+- [ ] Accessibility options (text size, contrast)
+- [ ] Audio/visual feedback for key actions
 
-### Inventory & Management
-- Pricing controls are not exposed in the unified Manage UI.
-- Pending order delivery delay is not implemented (orders are instant).
-- No auto-restock or demand forecasting tools.
-- Shelf list lacks visual selection highlight in the list itself.
+## Card Sets
+### Current Set: "Core Sprouts"
+Each card is listed as: `Name — Cost / Attack / Health`
 
-### Packs & Collection
-- Pack opening lacks animations/FX and pack artwork.
-- No collection UI with filters/sorting in the unified UI.
-- No in-game card inspection (zoom/details).
+#### Commons (Sproutling)
+- Sproutling 1 — 1 / 2 / 2
+- Sproutling 2 — 1 / 1 / 2
+- Sproutling 3 — 1 / 2 / 2
+- Sproutling 4 — 1 / 1 / 2
+- Sproutling 5 — 1 / 2 / 2
+- Sproutling 6 — 1 / 1 / 2
+- Sproutling 7 — 1 / 2 / 2
+- Sproutling 8 — 1 / 1 / 2
+- Sproutling 9 — 1 / 2 / 2
+- Sproutling 10 — 1 / 1 / 2
+- Sproutling 11 — 1 / 2 / 2
+- Sproutling 12 — 1 / 1 / 2
 
-### Battle
-- Battle UI is minimal and not integrated into the unified screen.
-- No rewards flow or campaign progression.
-- Limited AI depth and difficulty scaling.
+#### Uncommons (River Guard)
+- River Guard 1 — 2 / 3 / 3
+- River Guard 2 — 2 / 2 / 3
+- River Guard 3 — 2 / 3 / 3
+- River Guard 4 — 2 / 2 / 3
+- River Guard 5 — 2 / 3 / 3
+- River Guard 6 — 2 / 2 / 3
+- River Guard 7 — 2 / 3 / 3
+- River Guard 8 — 2 / 2 / 3
 
-### UX/Polish
-- No keybinds for manage actions.
-- Limited audio/visual feedback for actions (ordering, stocking, sales).
-- Accessibility settings (text size, contrast) not available.
+#### Rares (Skyblade)
+- Skyblade 1 — 3 / 4 / 4
+- Skyblade 2 — 3 / 3 / 4
+- Skyblade 3 — 3 / 4 / 4
+- Skyblade 4 — 3 / 3 / 4
+- Skyblade 5 — 3 / 4 / 4
 
-## Feature Completion Checklist (Suggested)
-- [ ] Integrate full Manage UI (pricing sliders, reorder queues, stock tools).
-- [ ] Add clear shelf selection indicators and list highlighting.
-- [ ] Add pack opening animation + card reveal FX.
-- [ ] Add collection viewer with filters/sorting.
-- [ ] Add battle rewards + progression loop back into shop.
-- [ ] Add placement rules (no overlapping objects, clear walk paths).
-- [ ] Add audio/visual feedback for key actions.
+#### Epics (Voidcaller)
+- Voidcaller 1 — 4 / 5 / 5
+- Voidcaller 2 — 4 / 4 / 5
+- Voidcaller 3 — 4 / 5 / 5
+
+#### Legendaries (Ancient Wyrm)
+- Ancient Wyrm 1 — 5 / 6 / 6
+- Ancient Wyrm 2 — 5 / 6 / 6
 
 ## Dev Console
 Open with ` and enter commands:
