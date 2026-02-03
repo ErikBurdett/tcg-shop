@@ -12,6 +12,7 @@ class InventoryOrder:
     decks: int
     singles: dict[str, int]
     cost: int
+    arrival_day: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -19,11 +20,18 @@ class InventoryOrder:
             "decks": self.decks,
             "singles": self.singles,
             "cost": self.cost,
+            "arrival_day": self.arrival_day,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "InventoryOrder":
-        return cls(data["boosters"], data.get("decks", 0), data["singles"], data["cost"])
+        return cls(
+            data["boosters"],
+            data.get("decks", 0),
+            data.get("singles", {}),
+            data.get("cost", 0),
+            data.get("arrival_day", 0),
+        )
 
 
 class Inventory:

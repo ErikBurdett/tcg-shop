@@ -1,0 +1,729 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"/><title>TCG Sim - Python</title><style>
+/* cspell:disable-file */
+/* webkit printing magic: print all background colors */
+html {
+	-webkit-print-color-adjust: exact;
+}
+* {
+	box-sizing: border-box;
+	-webkit-print-color-adjust: exact;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+}
+@media only screen {
+	body {
+		margin: 2em auto;
+		max-width: 900px;
+		color: rgb(55, 53, 47);
+	}
+}
+
+body {
+	line-height: 1.5;
+	white-space: pre-wrap;
+}
+
+a,
+a.visited {
+	color: inherit;
+	text-decoration: underline;
+}
+
+.pdf-relative-link-path {
+	font-size: 80%;
+	color: #444;
+}
+
+h1,
+h2,
+h3 {
+	letter-spacing: -0.01em;
+	line-height: 1.2;
+	font-weight: 600;
+	margin-bottom: 0;
+}
+
+/* Override strong tags inside headings to maintain consistent weight */
+h1 strong,
+h2 strong,
+h3 strong {
+	font-weight: 600;
+}
+
+.page-title {
+	font-size: 2.5rem;
+	font-weight: 700;
+	margin-top: 0;
+	margin-bottom: 0.75em;
+}
+
+h1 {
+	font-size: 1.875rem;
+	margin-top: 1.875rem;
+}
+
+h2 {
+	font-size: 1.5rem;
+	margin-top: 1.5rem;
+}
+
+h3 {
+	font-size: 1.25rem;
+	margin-top: 1.25rem;
+}
+
+.source {
+	border: 1px solid #ddd;
+	border-radius: 3px;
+	padding: 1.5em;
+	word-break: break-all;
+}
+
+.callout {
+	border-radius: 10px;
+	padding: 1rem;
+}
+
+figure {
+	margin: 1.25em 0;
+	page-break-inside: avoid;
+}
+
+figcaption {
+	opacity: 0.5;
+	font-size: 85%;
+	margin-top: 0.5em;
+}
+
+mark {
+	background-color: transparent;
+}
+
+.indented {
+	padding-left: 1.5em;
+}
+
+hr {
+	background: transparent;
+	display: block;
+	width: 100%;
+	height: 1px;
+	visibility: visible;
+	border: none;
+	border-bottom: 1px solid rgba(55, 53, 47, 0.09);
+}
+
+img {
+	max-width: 100%;
+}
+
+@media only print {
+	img {
+		max-height: 100vh;
+		object-fit: contain;
+	}
+}
+
+@page {
+	margin: 1in;
+}
+
+.collection-content {
+	font-size: 0.875rem;
+}
+
+.collection-content td {
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.column-list {
+	display: flex;
+	justify-content: space-between;
+}
+
+.column {
+	padding: 0 1em;
+}
+
+.column:first-child {
+	padding-left: 0;
+}
+
+.column:last-child {
+	padding-right: 0;
+}
+
+.table_of_contents-item {
+	display: block;
+	font-size: 0.875rem;
+	line-height: 1.3;
+	padding: 0.125rem;
+}
+
+.table_of_contents-indent-1 {
+	margin-left: 1.5rem;
+}
+
+.table_of_contents-indent-2 {
+	margin-left: 3rem;
+}
+
+.table_of_contents-indent-3 {
+	margin-left: 4.5rem;
+}
+
+.table_of_contents-link {
+	text-decoration: none;
+	opacity: 0.7;
+	border-bottom: 1px solid rgba(55, 53, 47, 0.18);
+}
+
+table,
+th,
+td {
+	border: 1px solid rgba(55, 53, 47, 0.09);
+	border-collapse: collapse;
+}
+
+table {
+	border-left: none;
+	border-right: none;
+}
+
+th,
+td {
+	font-weight: normal;
+	padding: 0.25em 0.5em;
+	line-height: 1.5;
+	min-height: 1.5em;
+	text-align: left;
+}
+
+th {
+	color: rgba(55, 53, 47, 0.6);
+}
+
+ol,
+ul {
+	margin: 0;
+	margin-block-start: 0.6em;
+	margin-block-end: 0.6em;
+}
+
+li > ol:first-child,
+li > ul:first-child {
+	margin-block-start: 0.6em;
+}
+
+ul > li {
+	list-style: disc;
+}
+
+ul.to-do-list {
+	padding-inline-start: 0;
+}
+
+ul.to-do-list > li {
+	list-style: none;
+}
+
+.to-do-children-checked {
+	text-decoration: line-through;
+	opacity: 0.375;
+}
+
+ul.toggle > li {
+	list-style: none;
+}
+
+ul {
+	padding-inline-start: 1.7em;
+}
+
+ul > li {
+	padding-left: 0.1em;
+}
+
+ol {
+	padding-inline-start: 1.6em;
+}
+
+ol > li {
+	padding-left: 0.2em;
+}
+
+.mono ol {
+	padding-inline-start: 2em;
+}
+
+.mono ol > li {
+	text-indent: -0.4em;
+}
+
+.toggle {
+	padding-inline-start: 0em;
+	list-style-type: none;
+}
+
+/* Indent toggle children */
+.toggle > li > details {
+	padding-left: 1.7em;
+}
+
+.toggle > li > details > summary {
+	margin-left: -1.1em;
+}
+
+.selected-value {
+	display: inline-block;
+	padding: 0 0.5em;
+	background: rgba(206, 205, 202, 0.5);
+	border-radius: 3px;
+	margin-right: 0.5em;
+	margin-top: 0.3em;
+	margin-bottom: 0.3em;
+	white-space: nowrap;
+}
+
+.collection-title {
+	display: inline-block;
+	margin-right: 1em;
+}
+
+.page-description {
+	margin-bottom: 2em;
+}
+
+.simple-table {
+	margin-top: 1em;
+	font-size: 0.875rem;
+	empty-cells: show;
+}
+.simple-table td {
+	height: 29px;
+	min-width: 120px;
+}
+
+.simple-table th {
+	height: 29px;
+	min-width: 120px;
+}
+
+.simple-table-header-color {
+	background: rgb(247, 246, 243);
+	color: black;
+}
+.simple-table-header {
+	font-weight: 500;
+}
+
+time {
+	opacity: 0.5;
+}
+
+.icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	max-width: 1.2em;
+	max-height: 1.2em;
+	text-decoration: none;
+	vertical-align: text-bottom;
+	margin-right: 0.5em;
+}
+
+img.icon {
+	border-radius: 3px;
+}
+
+.callout img.notion-static-icon {
+	width: 1em;
+	height: 1em;
+}
+
+.callout p {
+	margin: 0;
+}
+
+.callout h1,
+.callout h2,
+.callout h3 {
+	margin: 0 0 0.6rem;
+}
+
+.user-icon {
+	width: 1.5em;
+	height: 1.5em;
+	border-radius: 100%;
+	margin-right: 0.5rem;
+}
+
+.user-icon-inner {
+	font-size: 0.8em;
+}
+
+.text-icon {
+	border: 1px solid #000;
+	text-align: center;
+}
+
+.page-cover-image {
+	display: block;
+	object-fit: cover;
+	width: 100%;
+	max-height: 30vh;
+}
+
+.page-header-icon {
+	font-size: 3rem;
+	margin-bottom: 1rem;
+}
+
+.page-header-icon-with-cover {
+	margin-top: -0.72em;
+	margin-left: 0.07em;
+}
+
+.page-header-icon img {
+	border-radius: 3px;
+}
+
+.link-to-page {
+	margin: 1em 0;
+	padding: 0;
+	border: none;
+	font-weight: 500;
+}
+
+p > .user {
+	opacity: 0.5;
+}
+
+td > .user,
+td > time {
+	white-space: nowrap;
+}
+
+input[type="checkbox"] {
+	transform: scale(1.5);
+	margin-right: 0.6em;
+	vertical-align: middle;
+}
+
+p {
+	margin-top: 0.5em;
+	margin-bottom: 0.5em;
+}
+
+.image {
+	border: none;
+	margin: 1.5em 0;
+	padding: 0;
+	border-radius: 0;
+	text-align: center;
+}
+
+.code,
+code {
+	background: rgba(135, 131, 120, 0.15);
+	border-radius: 3px;
+	padding: 0.2em 0.4em;
+	border-radius: 3px;
+	font-size: 85%;
+	tab-size: 2;
+}
+
+code {
+	color: #eb5757;
+}
+
+.code {
+	padding: 1.5em 1em;
+}
+
+.code-wrap {
+	white-space: pre-wrap;
+	word-break: break-all;
+}
+
+.code > code {
+	background: none;
+	padding: 0;
+	font-size: 100%;
+	color: inherit;
+}
+
+blockquote {
+	font-size: 1em;
+	margin: 1em 0;
+	padding-left: 1em;
+	border-left: 3px solid rgb(55, 53, 47);
+}
+
+blockquote.quote-large {
+	font-size: 1.25em;
+}
+
+.bookmark {
+	text-decoration: none;
+	max-height: 8em;
+	padding: 0;
+	display: flex;
+	width: 100%;
+	align-items: stretch;
+}
+
+.bookmark-title {
+	font-size: 0.85em;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	height: 1.75em;
+	white-space: nowrap;
+}
+
+.bookmark-text {
+	display: flex;
+	flex-direction: column;
+}
+
+.bookmark-info {
+	flex: 4 1 180px;
+	padding: 12px 14px 14px;
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+}
+
+.bookmark-image {
+	width: 33%;
+	flex: 1 1 180px;
+	display: block;
+	position: relative;
+	object-fit: cover;
+	border-radius: 1px;
+}
+
+.bookmark-description {
+	color: rgba(55, 53, 47, 0.6);
+	font-size: 0.75em;
+	overflow: hidden;
+	max-height: 4.5em;
+	word-break: break-word;
+}
+
+.bookmark-href {
+	font-size: 0.75em;
+	margin-top: 0.25em;
+}
+
+.sans { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI", Helvetica, "Apple Color Emoji", "Noto Sans Arabic", "Noto Sans Hebrew", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol"; }
+.code { font-family: "SFMono-Regular", Menlo, Consolas, "PT Mono", "Liberation Mono", Courier, monospace; }
+.serif { font-family: Lyon-Text, Georgia, ui-serif, serif; }
+.mono { font-family: iawriter-mono, Nitti, Menlo, Courier, monospace; }
+.pdf .sans { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI", Helvetica, "Apple Color Emoji", "Noto Sans Arabic", "Noto Sans Hebrew", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol", 'Twemoji', 'Noto Color Emoji', 'Noto Sans CJK JP'; }
+.pdf:lang(zh-CN) .sans { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI", Helvetica, "Apple Color Emoji", "Noto Sans Arabic", "Noto Sans Hebrew", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol", 'Twemoji', 'Noto Color Emoji', 'Noto Sans CJK SC'; }
+.pdf:lang(zh-TW) .sans { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI", Helvetica, "Apple Color Emoji", "Noto Sans Arabic", "Noto Sans Hebrew", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol", 'Twemoji', 'Noto Color Emoji', 'Noto Sans CJK TC'; }
+.pdf:lang(ko-KR) .sans { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI", Helvetica, "Apple Color Emoji", "Noto Sans Arabic", "Noto Sans Hebrew", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol", 'Twemoji', 'Noto Color Emoji', 'Noto Sans CJK KR'; }
+.pdf .code { font-family: Source Code Pro, "SFMono-Regular", Menlo, Consolas, "PT Mono", "Liberation Mono", Courier, monospace, 'Twemoji', 'Noto Color Emoji', 'Noto Sans Mono CJK JP'; }
+.pdf:lang(zh-CN) .code { font-family: Source Code Pro, "SFMono-Regular", Menlo, Consolas, "PT Mono", "Liberation Mono", Courier, monospace, 'Twemoji', 'Noto Color Emoji', 'Noto Sans Mono CJK SC'; }
+.pdf:lang(zh-TW) .code { font-family: Source Code Pro, "SFMono-Regular", Menlo, Consolas, "PT Mono", "Liberation Mono", Courier, monospace, 'Twemoji', 'Noto Color Emoji', 'Noto Sans Mono CJK TC'; }
+.pdf:lang(ko-KR) .code { font-family: Source Code Pro, "SFMono-Regular", Menlo, Consolas, "PT Mono", "Liberation Mono", Courier, monospace, 'Twemoji', 'Noto Color Emoji', 'Noto Sans Mono CJK KR'; }
+.pdf .serif { font-family: PT Serif, Lyon-Text, Georgia, ui-serif, serif, 'Twemoji', 'Noto Color Emoji', 'Noto Serif CJK JP'; }
+.pdf:lang(zh-CN) .serif { font-family: PT Serif, Lyon-Text, Georgia, ui-serif, serif, 'Twemoji', 'Noto Color Emoji', 'Noto Serif CJK SC'; }
+.pdf:lang(zh-TW) .serif { font-family: PT Serif, Lyon-Text, Georgia, ui-serif, serif, 'Twemoji', 'Noto Color Emoji', 'Noto Serif CJK TC'; }
+.pdf:lang(ko-KR) .serif { font-family: PT Serif, Lyon-Text, Georgia, ui-serif, serif, 'Twemoji', 'Noto Color Emoji', 'Noto Serif CJK KR'; }
+.pdf .mono { font-family: PT Mono, iawriter-mono, Nitti, Menlo, Courier, monospace, 'Twemoji', 'Noto Color Emoji', 'Noto Sans Mono CJK JP'; }
+.pdf:lang(zh-CN) .mono { font-family: PT Mono, iawriter-mono, Nitti, Menlo, Courier, monospace, 'Twemoji', 'Noto Color Emoji', 'Noto Sans Mono CJK SC'; }
+.pdf:lang(zh-TW) .mono { font-family: PT Mono, iawriter-mono, Nitti, Menlo, Courier, monospace, 'Twemoji', 'Noto Color Emoji', 'Noto Sans Mono CJK TC'; }
+.pdf:lang(ko-KR) .mono { font-family: PT Mono, iawriter-mono, Nitti, Menlo, Courier, monospace, 'Twemoji', 'Noto Color Emoji', 'Noto Sans Mono CJK KR'; }
+.highlight-default {
+	color: rgba(44, 44, 43, 1);
+}
+.highlight-gray {
+	color: rgba(125, 122, 117, 1);
+	fill: rgba(125, 122, 117, 1);
+}
+.highlight-brown {
+	color: rgba(159, 118, 90, 1);
+	fill: rgba(159, 118, 90, 1);
+}
+.highlight-orange {
+	color: rgba(210, 123, 45, 1);
+	fill: rgba(210, 123, 45, 1);
+}
+.highlight-yellow {
+	color: rgba(203, 148, 52, 1);
+	fill: rgba(203, 148, 52, 1);
+}
+.highlight-teal {
+	color: rgba(80, 148, 110, 1);
+	fill: rgba(80, 148, 110, 1);
+}
+.highlight-blue {
+	color: rgba(56, 125, 201, 1);
+	fill: rgba(56, 125, 201, 1);
+}
+.highlight-purple {
+	color: rgba(154, 107, 180, 1);
+	fill: rgba(154, 107, 180, 1);
+}
+.highlight-pink {
+	color: rgba(193, 76, 138, 1);
+	fill: rgba(193, 76, 138, 1);
+}
+.highlight-red {
+	color: rgba(207, 81, 72, 1);
+	fill: rgba(207, 81, 72, 1);
+}
+.highlight-default_background {
+	color: rgba(44, 44, 43, 1);
+}
+.highlight-gray_background {
+	background: rgba(42, 28, 0, 0.07);
+}
+.highlight-brown_background {
+	background: rgba(139, 46, 0, 0.086);
+}
+.highlight-orange_background {
+	background: rgba(224, 101, 1, 0.129);
+}
+.highlight-yellow_background {
+	background: rgba(211, 168, 0, 0.137);
+}
+.highlight-teal_background {
+	background: rgba(0, 100, 45, 0.09);
+}
+.highlight-blue_background {
+	background: rgba(0, 124, 215, 0.094);
+}
+.highlight-purple_background {
+	background: rgba(102, 0, 178, 0.078);
+}
+.highlight-pink_background {
+	background: rgba(197, 0, 93, 0.086);
+}
+.highlight-red_background {
+	background: rgba(223, 22, 0, 0.094);
+}
+.block-color-default {
+	color: inherit;
+	fill: inherit;
+}
+.block-color-gray {
+	color: rgba(125, 122, 117, 1);
+	fill: rgba(125, 122, 117, 1);
+}
+.block-color-brown {
+	color: rgba(159, 118, 90, 1);
+	fill: rgba(159, 118, 90, 1);
+}
+.block-color-orange {
+	color: rgba(210, 123, 45, 1);
+	fill: rgba(210, 123, 45, 1);
+}
+.block-color-yellow {
+	color: rgba(203, 148, 52, 1);
+	fill: rgba(203, 148, 52, 1);
+}
+.block-color-teal {
+	color: rgba(80, 148, 110, 1);
+	fill: rgba(80, 148, 110, 1);
+}
+.block-color-blue {
+	color: rgba(56, 125, 201, 1);
+	fill: rgba(56, 125, 201, 1);
+}
+.block-color-purple {
+	color: rgba(154, 107, 180, 1);
+	fill: rgba(154, 107, 180, 1);
+}
+.block-color-pink {
+	color: rgba(193, 76, 138, 1);
+	fill: rgba(193, 76, 138, 1);
+}
+.block-color-red {
+	color: rgba(207, 81, 72, 1);
+	fill: rgba(207, 81, 72, 1);
+}
+.block-color-default_background {
+	color: inherit;
+	fill: inherit;
+}
+.block-color-gray_background {
+	background: rgba(240, 239, 237, 1);
+}
+.block-color-brown_background {
+	background: rgba(245, 237, 233, 1);
+}
+.block-color-orange_background {
+	background: rgba(251, 235, 222, 1);
+}
+.block-color-yellow_background {
+	background: rgba(249, 243, 220, 1);
+}
+.block-color-teal_background {
+	background: rgba(232, 241, 236, 1);
+}
+.block-color-blue_background {
+	background: rgba(229, 242, 252, 1);
+}
+.block-color-purple_background {
+	background: rgba(243, 235, 249, 1);
+}
+.block-color-pink_background {
+	background: rgba(250, 233, 241, 1);
+}
+.block-color-red_background {
+	background: rgba(252, 233, 231, 1);
+}
+.select-value-color-default { background-color: rgba(42, 28, 0, 0.07); }
+.select-value-color-gray { background-color: rgba(28, 19, 1, 0.11); }
+.select-value-color-brown { background-color: rgba(127, 51, 0, 0.156); }
+.select-value-color-orange { background-color: rgba(196, 88, 0, 0.203); }
+.select-value-color-yellow { background-color: rgba(209, 156, 0, 0.282); }
+.select-value-color-green { background-color: rgba(0, 96, 38, 0.156); }
+.select-value-color-blue { background-color: rgba(0, 118, 217, 0.203); }
+.select-value-color-purple { background-color: rgba(92, 0, 163, 0.141); }
+.select-value-color-pink { background-color: rgba(183, 0, 78, 0.152); }
+.select-value-color-red { background-color: rgba(206, 24, 0, 0.164); }
+
+.checkbox {
+	display: inline-flex;
+	vertical-align: text-bottom;
+	width: 16;
+	height: 16;
+	background-size: 16px;
+	margin-left: 2px;
+	margin-right: 5px;
+}
+
+.checkbox-on {
+	background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2016%2016%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%0A%3Crect%20width%3D%2216%22%20height%3D%2216%22%20fill%3D%22%2358A9D7%22%2F%3E%0A%3Cpath%20d%3D%22M6.71429%2012.2852L14%204.9995L12.7143%203.71436L6.71429%209.71378L3.28571%206.2831L2%207.57092L6.71429%2012.2852Z%22%20fill%3D%22white%22%2F%3E%0A%3C%2Fsvg%3E");
+}
+
+.checkbox-off {
+	background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2016%2016%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%0A%3Crect%20x%3D%220.75%22%20y%3D%220.75%22%20width%3D%2214.5%22%20height%3D%2214.5%22%20fill%3D%22white%22%20stroke%3D%22%2336352F%22%20stroke-width%3D%221.5%22%2F%3E%0A%3C%2Fsvg%3E");
+}
+	
+</style></head><body><article id="2fcdb139-5a21-807f-b918-e0e7015c3755" class="page sans"><header><h1 class="page-title" dir="auto">TCG Sim - Python</h1><p class="page-description" dir="auto"></p></header><div class="page-body"><div style="display:contents" dir="auto"><h2 id="2fcdb139-5a21-8027-b2d9-e04cc7a9adc6" class=""><strong>1) Project overview (what it is and how it works today)</strong></h2></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80ea-92e3-e6baf2d52e5d" class=""><strong>TCG Shop Simulator</strong> is a Pygame prototype that combines two core loops: a <strong>shop/economy loop</strong> and a <strong>TCG loop</strong> (packs → collection/deck → battle AI). The README describes this loop explicitly, plus the tabbed single‑screen UX (Shop / Packs / Deck / Manage / Battle) and a checklist of implemented vs. missing features.</p></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8017-8d9c-cf40277ceeb0" class=""><strong>Key implemented loops (from docs + code):</strong></p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8048-837a-e6970c0b0da2" class="bulleted-list"><li style="list-style-type:disc"><strong>Shop day simulation</strong>: Customers spawn and walk through a simple flow (shelf → counter → exit). Purchases decrement shelf stock and add cash + revenue summaries, then the day ends and the game is saved.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-807b-b125-d06b94e41317" class="bulleted-list"><li style="list-style-type:disc"><strong>Inventory / management</strong>: There’s an explicit Manage scene for <strong>pricing</strong> and <strong>re‑ordering</strong> as a separate UI, and a Manage tab in the shop scene for shelf stocking and ordering (with some overlap). The Manage scene uses <strong>pending_orders</strong> (applied later), while the Shop scene applies orders immediately, which is an important inconsistency to resolve in the next iteration.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8031-a192-eeef7c473e0f" class="bulleted-list"><li style="list-style-type:disc"><strong>Card system</strong>: Cards are currently <strong>hardcoded</strong> in <code><strong>card_defs.py</strong></code> (common/uncommon/rare/etc. lists), and pack opening uses a fixed rarity distribution + deterministic 3 common + 1 uncommon + 1 rare+ slot (with RNG).</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8090-ba9f-d92228b9b015" class="bulleted-list"><li style="list-style-type:disc"><strong>Battle loop</strong>: Turn‑based battle with mana curve, minions, simple AI, and win rewards (money + booster). The battle rules are in <code><strong>game/cards/battle.py</strong></code> and the UI is in <code><strong>game/scenes/battle_scene.py</strong></code>.</li></ul></div><div style="display:contents" dir="auto"><hr id="2fcdb139-5a21-8057-bbdf-e2e46259015e"/></div><div style="display:contents" dir="auto"><h2 id="2fcdb139-5a21-80e0-bd42-c866f229a315" class=""><strong>2) Architecture and module boundaries (full‑stack lens)</strong></h2></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-800b-bcd6-ec10a6150d4b" class="">The project already exhibits a separation of concerns that can be hardened into clear layers:</p></div><div style="display:contents" dir="auto"><h3 id="2fcdb139-5a21-80e3-8e2e-c11471238f8a" class=""><strong>✅ Simulation / domain layer (logic, deterministic)</strong></h3></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8097-95a0-fd88310483d8" class="bulleted-list"><li style="list-style-type:disc"><strong>Economy decision logic</strong> is in <code><strong>game/sim/economy.py</strong></code> (<code><strong>daily_customer_count</strong></code>, <code><strong>choose_purchase</strong></code>). This is pure logic and should remain so for testability and balancing.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8064-b0de-fd808c68fabd" class="bulleted-list"><li style="list-style-type:disc"><strong>Battle rules</strong> live in <code><strong>game/cards/battle.py</strong></code> and are well‑suited to become a pure “reducer” with event logs for replays/AI. Currently it mutates state directly without event logging.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8034-9c3c-eb7331d6afda" class="bulleted-list"><li style="list-style-type:disc"><strong>Cards + decks</strong> use <code><strong>CardDef</strong></code> and deck rules (20 cards, max 2 copies) in <code><strong>game/cards/deck.py</strong></code> and <code><strong>card_defs.py</strong></code>. This is deterministic and already easy to unit test.</li></ul></div><div style="display:contents" dir="auto"><h3 id="2fcdb139-5a21-80eb-b253-f7dde6144aa0" class=""><strong>✅ Application / orchestration layer (game state, flow, save)</strong></h3></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8086-b3cc-c121d49b8bbe" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/core/app.py</strong></code> owns the <strong>GameState</strong>, transitions, saves, and applies pending orders at the start of the day.</li></ul></div><div style="display:contents" dir="auto"><h3 id="2fcdb139-5a21-8068-b6cd-c49d4137422b" class=""><strong>✅ Presentation / UI layer (Pygame)</strong></h3></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-806e-8365-dff709e8a810" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/scenes/*</strong></code> render UI and call simulation actions. For example, the ShopScene handles object placement and shelf stocking UI (drag + resize panels, tab buttons, etc.).</li></ul></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80c1-9465-d678f889b961" class=""><strong>Best‑practice next step:</strong> formalize <strong>pure simulation</strong> for the shop and battle loops (side‑effect free), while UI layers just render and dispatch events. This will make balancing, AI, and tests much easier.</p></div><div style="display:contents" dir="auto"><hr id="2fcdb139-5a21-801f-b87a-ce70d0ff42b5"/></div><div style="display:contents" dir="auto"><h2 id="2fcdb139-5a21-800c-9f32-f3b9404bbde5" class=""><strong>3) Current development state (where it is right now)</strong></h2></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80e6-8295-d5ef44687748" class="">Based on the README feature checklist and code implementation, the project is at an <strong>early vertical‑slice / prototype stage</strong>:</p></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8045-90c1-ee56c4500913" class=""><strong>What’s implemented (confirmed):</strong></p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80a5-8a96-f917eec872dd" class="bulleted-list"><li style="list-style-type:disc">Shop placement, customers, pricing &amp; ordering (in Manage scene), packs, deck rules, battle flow, single‑screen UI, save/load, dev console.</li></ul></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8032-b8bf-e907798a577a" class=""><strong>What’s flagged as missing (confirmed):</strong></p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-800b-a25e-f6eae7f29fe9" class="bulleted-list"><li style="list-style-type:disc">Pricing controls in unified Manage UI (still in separate ManageScene).</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8079-9239-c683dc7ca940" class="bulleted-list"><li style="list-style-type:disc">Delayed order delivery (orders are instant).</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-806e-87d0-c2d989b7e762" class="bulleted-list"><li style="list-style-type:disc">Auto‑restock / demand forecasting.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-805f-87fe-e457249cd7cb" class="bulleted-list"><li style="list-style-type:disc">Pack opening FX + pack art.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-803e-bd5c-fae46273d82a" class="bulleted-list"><li style="list-style-type:disc">Collection browser filtering/sorting.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80d0-8ec3-deef42ffd5c8" class="bulleted-list"><li style="list-style-type:disc">Battle rewards + progression loop.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80fd-99dd-f7c385ebf432" class="bulleted-list"><li style="list-style-type:disc">Placement rules/collision constraints.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8062-b926-f0a4d44bbbcb" class="bulleted-list"><li style="list-style-type:disc">Accessibility and feedback polish.</li></ul></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-808e-91c7-fdcd37a01c16" class=""><strong>Evidence in code:</strong></p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80bc-a9e3-ee4ebb515553" class="bulleted-list"><li style="list-style-type:disc"><strong>Orders are instant or next‑tick</strong>: ShopScene applies orders immediately to inventory; ManageScene adds <code><strong>pending_orders</strong></code> that are applied at day start, but still no delivery delay model.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8044-84fd-f5093eabd1e9" class="bulleted-list"><li style="list-style-type:disc"><strong>Placement lacks collision/validation</strong>: ShopLayout doesn’t check occupancy or walkability; it just appends an object if in bounds.</li></ul></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-809e-951c-e9e1bb1e2882" class=""><strong>Summary</strong>: The core loops are playable enough to validate fun, but <strong>systems are first‑pass and mostly hardcoded</strong>. That’s the perfect time to harden simulation logic, move content to data files, and add UX + progression hooks.</p></div><div style="display:contents" dir="auto"><hr id="2fcdb139-5a21-8095-ade6-cd34aaa413ce"/></div><div style="display:contents" dir="auto"><h2 id="2fcdb139-5a21-80b3-ba35-e0528163e996" class=""><strong>4) Roadmap (phased, shippable slices)</strong></h2></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80b1-b74a-ea9be7322b6c" class=""><strong>Phase 1 — Hardening the vertical slice (Now)</strong></p></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8010-a946-e53fa817a9c8" class="">Goal: Make current loops reliable and testable.</p></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-806e-9bb8-e32af297dfcb" class="numbered-list" start="1"><li><strong>Placement validation &amp; occupancy map</strong><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-806f-98bd-e6fe9ef45d57" class="">Add grid occupancy checks in <code><strong>ShopLayout.place</strong></code> to prevent overlaps and ensure walkable tiles.</p></div></li></ol></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-80be-9220-d22871094050" class="numbered-list" start="2"><li><strong>Delayed orders (delivery queue)</strong><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80a2-94f1-ed81dc0232cf" class="">Convert <code><strong>InventoryOrder</strong></code> into a model with <code><strong>arrival_day</strong></code> so orders arrive in future days. Right now, orders are applied immediately or on day start without delay.</p></div></li></ol></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-80eb-b42f-c196bea428ad" class="numbered-list" start="3"><li><strong>Unified pricing controls in Manage tab</strong><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-804e-bfb7-e16a139bdd3c" class="">Pricing is currently in <code><strong>ManageScene</strong></code>, not the ShopScene Manage tab. Merge or embed pricing controls for UX consistency.</p></div></li></ol></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-80a6-8540-f0a7ef6ed114" class="numbered-list" start="4"><li><strong>Battle UI cohesion</strong><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80e3-9226-f3b373ec0daf" class="">Keep battles in the unified UI or enhance with a cohesive “battle pane” to match the project’s single‑screen UX goal.</p></div></li></ol></div><div style="display:contents" dir="auto"><hr id="2fcdb139-5a21-80f9-9a23-e999bd801cce"/></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80cb-8e5c-e730cee96bc0" class=""><strong>Phase 2 — Data‑driven content + progression</strong></p></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8085-ad32-e60ab1c98996" class="">Goal: Make content extensible without touching code.</p></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-806d-947d-c319dcf4a7cf" class="numbered-list" start="1"><li><strong>Data‑driven card sets</strong><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8094-9735-cf97a8eba105" class="">Today, cards are hardcoded in <code><strong>game/cards/card_defs.py</strong></code>. Move to JSON/YAML in a <code><strong>content/sets/*</strong></code> folder, with validation hooks. (More on this below.)</p></div></li></ol></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-8047-a46d-faf6182602f0" class="numbered-list" start="2"><li><strong>Collection UX</strong><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80a4-81d1-f201a8383eb6" class="">Add filtering, sorting, and a card inspect/zoom overlay. The README explicitly calls this missing.</p></div></li></ol></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-80aa-baeb-cdacbdb06f04" class="numbered-list" start="3"><li><strong>Progression loop</strong><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80e6-bf60-ded5509c75b1" class="">Add simple rewards (battle → currency → shop upgrades). Currently only wins grant money + boosters, and no meta progression exists.</p></div></li></ol></div><div style="display:contents" dir="auto"><hr id="2fcdb139-5a21-80bb-ab76-c1cbf73152b2"/></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80e5-8407-e30b97a62efd" class=""><strong>Phase 3 — Smarter simulation &amp; AI</strong></p></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80f7-856a-facfabac3036" class="">Goal: Make the shop and battles “strategically deep”.</p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80f0-ba22-ffad4ec31e97" class="bulleted-list"><li style="list-style-type:disc"><strong>Demand model + price elasticity</strong><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8063-b5a3-f244a3db1b3a" class=""><code><strong>choose_purchase</strong></code> already weights purchase by price (very simple). Replace with an explicit demand function using price elasticity and day‑based demand shifts.</p></div></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80ea-bd33-fe3bac08d55a" class="bulleted-list"><li style="list-style-type:disc"><strong>Customer archetypes</strong><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-804e-8ac4-f872ae8b1f6a" class="">Add customers with distinct preferences (budget vs collector vs competitive).</p></div></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80c5-b603-d4e12ee6ac8d" class="bulleted-list"><li style="list-style-type:disc"><strong>AI difficulty scaling</strong><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8046-8ae7-cd3331c166cd" class="">Move from “simple greedy” to a heuristic + 1‑ply lookahead engine in battle logic; this is natural if battle is event‑sourced.</p></div></li></ul></div><div style="display:contents" dir="auto"><hr id="2fcdb139-5a21-8009-b1fb-c091e8b9d344"/></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8000-965c-e4596fdb629b" class=""><strong>Phase 4 — Production polish</strong></p></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80d1-8288-ffcb2f508e52" class="">Goal: A polished game rather than a prototype.</p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80a6-989c-d8b915574fec" class="bulleted-list"><li style="list-style-type:disc">Animation system, FX pipeline, camera/viewport, texture packing, audio, accessibility controls. This is called out in <code><strong>graphics_overview.md</strong></code> as missing for a fully immersive game.</li></ul></div><div style="display:contents" dir="auto"><hr id="2fcdb139-5a21-8041-9298-f4e0835d790f"/></div><div style="display:contents" dir="auto"><h2 id="2fcdb139-5a21-8021-b091-ed562de3d3e8" class=""><strong>5) How to extend card sets + stats (current code and best‑practice upgrades)</strong></h2></div><div style="display:contents" dir="auto"><h3 id="2fcdb139-5a21-8056-baeb-e8c107175616" class=""><strong>✅ Current implementation (what you must edit now)</strong></h3></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-803b-b80a-f8661977f71e" class=""><strong>Cards are hardcoded in Python:</strong></p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80f8-bbda-d3df4a26df64" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/cards/card_defs.py</strong></code> defines card IDs, names, rarities, stats.</li></ul></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-805b-9697-d467005c1241" class=""><strong>Pack generation pulls by rarity:</strong></p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80a8-92e6-d39b8a729a10" class="bulleted-list"><li style="list-style-type:disc"><code><strong>open_booster</strong></code> pulls 3 commons, 1 uncommon, 1 rare+ by rarity roll.</li></ul></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80eb-9b5d-daa2ff7129d4" class=""><strong>Art mapping is in code:</strong></p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-803d-a285-ea1c07a80433" class="bulleted-list"><li style="list-style-type:disc">Asset mappings for card art are coded in <code><strong>game/assets/__init__.py</strong></code> (tile numbers + tilesheet coords).</li></ul></div><div style="display:contents" dir="auto"><h3 id="2fcdb139-5a21-8007-9b03-dc93eb07a37f" class=""><strong>✅ Best‑practice approach (data‑driven sets)</strong></h3></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80df-8c64-e5f56563e5ea" class="">Move to data files so designers can ship new sets without editing Python:</p></div><div style="display:contents" dir="auto"><script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js" integrity="sha512-7Z9J3l1+EYfeaPKcGXu3MS/7T+w19WtKQY/n+xzmw4hZhJ9tyYmcUS+4QqAlzhicE5LAfMQSF3iFTK9bQdTxXg==" crossorigin="anonymous" referrerPolicy="no-referrer"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css" integrity="sha512-tN7Ec6zAFaVSG3TpNAKtk4DOHNpSwKHxxrsiw4GHKESGPs5njn/0sMCUMl2svV4wo4BK/rCP7juYz+zx+l6oeQ==" crossorigin="anonymous" referrerPolicy="no-referrer"/><pre id="2fcdb139-5a21-8066-8468-dda78675d25c" class="code code-wrap"><code class="language-Plain Text" style="white-space:pre-wrap;word-break:break-all">content/
+  sets/
+    core_sprouts/
+      cards.json
+      pack.json
+      art.json
+
+</code></pre></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8002-b21c-ed08b687c445" class=""><strong>cards.json example:</strong></p></div><div style="display:contents" dir="auto"><script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js" integrity="sha512-7Z9J3l1+EYfeaPKcGXu3MS/7T+w19WtKQY/n+xzmw4hZhJ9tyYmcUS+4QqAlzhicE5LAfMQSF3iFTK9bQdTxXg==" crossorigin="anonymous" referrerPolicy="no-referrer"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css" integrity="sha512-tN7Ec6zAFaVSG3TpNAKtk4DOHNpSwKHxxrsiw4GHKESGPs5njn/0sMCUMl2svV4wo4BK/rCP7juYz+zx+l6oeQ==" crossorigin="anonymous" referrerPolicy="no-referrer"/><pre id="2fcdb139-5a21-80cb-b424-f40abe497140" class="code code-wrap"><code class="language-JSON" style="white-space:pre-wrap;word-break:break-all">{
+&quot;set_id&quot;:&quot;core_sprouts&quot;,
+&quot;cards&quot;:[
+{&quot;id&quot;:&quot;core_sprouts:sproutling_01&quot;,&quot;name&quot;:&quot;Sproutling 1&quot;,&quot;rarity&quot;:&quot;common&quot;,&quot;cost&quot;:1,&quot;attack&quot;:2,&quot;health&quot;:2}
+]
+}
+
+</code></pre></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80d9-956b-e541b6c1f510" class=""><strong>Why this matters:</strong></p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-808e-8123-f943f312efc1" class="bulleted-list"><li style="list-style-type:disc">Content updates don’t require code changes.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-800b-9a7b-fddf3a2247a8" class="bulleted-list"><li style="list-style-type:disc">You can ship balance patches without touching logic.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-803f-917a-f41077b08cc4" class="bulleted-list"><li style="list-style-type:disc">You can enable mod packs by loading multiple set folders.</li></ul></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80c1-aec5-efce0974699d" class=""><strong>Validation best practices:</strong></p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80e9-a771-dddde86e6763" class="bulleted-list"><li style="list-style-type:disc">Enforce unique IDs and rarity counts.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80cc-a3c5-d7c0cbb7f525" class="bulleted-list"><li style="list-style-type:disc">Validate art mappings (missing sprites).</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80d6-9c63-e75ea549423b" class="bulleted-list"><li style="list-style-type:disc">Validate stat bounds.</li></ul></div><div style="display:contents" dir="auto"><hr id="2fcdb139-5a21-80a9-bbdb-e43f04348d95"/></div><div style="display:contents" dir="auto"><h2 id="2fcdb139-5a21-805b-9d0f-c58ebf6de07e" class=""><strong>6) Shop simulation improvements (specific, high‑impact)</strong></h2></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8092-bcaf-ceaef1883186" class="">Today, customer selection is a <strong>simple weighted choice</strong> by price and availability; there’s no stockout or elasticity model beyond a weighted random pick.</p></div><div style="display:contents" dir="auto"><h3 id="2fcdb139-5a21-80b0-9033-e9fce81a04e5" class=""><strong>Suggested expansions</strong></h3></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-804f-95e3-e87e520945fd" class=""><strong>1) Demand + price elasticity</strong></p></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8095-95d1-fd9ab0b85dda" class="">Build a demand function:</p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8013-b183-cbea3cf2d4a7" class="bulleted-list"><li style="list-style-type:disc"><code><strong>demand = base * (price / ref_price) ^ -elasticity</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80ad-8688-f5dd99676a8f" class="bulleted-list"><li style="list-style-type:disc">Use it to stochastically simulate “willingness to buy”.</li></ul></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80e1-820f-f95959265c71" class=""><strong>2) Customer archetypes</strong></p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8055-9e4e-daeff73ff681" class="bulleted-list"><li style="list-style-type:disc">Budget: prefers low price</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-803a-b42e-c0729b3fe23f" class="bulleted-list"><li style="list-style-type:disc">Collector: prefers high rarity singles</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80a5-b170-e67a037fea1e" class="bulleted-list"><li style="list-style-type:disc">Competitive: prefers decks</li></ul></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80e6-86e8-cf0141afdb3d" class=""><strong>3) Stockout behavior</strong></p></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8089-9cd1-fbc3952aa24b" class="">If shelf empty → leave or substitute</p></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-804f-b7d4-cbaa5f5ee447" class=""><strong>4) Inventory planning</strong></p></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80f2-83d7-f938621b2273" class="">Add reorder points + forecast UI.</p></div><div style="display:contents" dir="auto"><hr id="2fcdb139-5a21-809d-b041-e1d501aec4ae"/></div><div style="display:contents" dir="auto"><h2 id="2fcdb139-5a21-8075-b1ba-d9cd98759d4c" class=""><strong>7) Battle system improvements</strong></h2></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-800d-bd3d-f72122a4078b" class="">Currently, battle rules are simple and stateful (mutating <code><strong>BattleState</strong></code>).</p></div><div style="display:contents" dir="auto"><h3 id="2fcdb139-5a21-808f-96ec-ebddd20a7dcc" class=""><strong>Best‑practice improvement: Event‑sourced reducer</strong></h3></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-808f-9c14-e7cbcaba1a79" class="">Convert to:</p></div><div style="display:contents" dir="auto"><script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js" integrity="sha512-7Z9J3l1+EYfeaPKcGXu3MS/7T+w19WtKQY/n+xzmw4hZhJ9tyYmcUS+4QqAlzhicE5LAfMQSF3iFTK9bQdTxXg==" crossorigin="anonymous" referrerPolicy="no-referrer"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css" integrity="sha512-tN7Ec6zAFaVSG3TpNAKtk4DOHNpSwKHxxrsiw4GHKESGPs5njn/0sMCUMl2svV4wo4BK/rCP7juYz+zx+l6oeQ==" crossorigin="anonymous" referrerPolicy="no-referrer"/><pre id="2fcdb139-5a21-8082-986b-ce9310e32df4" class="code code-wrap"><code class="language-Plain Text" style="white-space:pre-wrap;word-break:break-all">(state, action) -&gt; (new_state, [events])
+
+</code></pre></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8019-aaaa-f17e91e7bbc7" class=""><strong>Benefits</strong></p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80b1-a368-d57fec70d7ab" class="bulleted-list"><li style="list-style-type:disc">Replayable combats.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8060-b383-ed82139366b5" class="bulleted-list"><li style="list-style-type:disc">UI can animate events without guessing rules.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80f8-b68a-e95262ab5808" class="bulleted-list"><li style="list-style-type:disc">AI can simulate actions for evaluation.</li></ul></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8000-a054-f07bffe3f7cc" class=""><strong>AI improvements:</strong></p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-808e-a640-ef448fe34733" class="bulleted-list"><li style="list-style-type:disc">Heuristic scoring of board state.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8088-b326-c764b8e5652f" class="bulleted-list"><li style="list-style-type:disc">1‑ply lookahead (simulate next move).</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80a0-8d2f-cd2b94117b0a" class="bulleted-list"><li style="list-style-type:disc">Difficulty scaling by evaluation depth or reduced randomness.</li></ul></div><div style="display:contents" dir="auto"><hr id="2fcdb139-5a21-8068-a6b0-e9638b5e6555"/></div><div style="display:contents" dir="auto"><h2 id="2fcdb139-5a21-8028-857e-c0d0d7a4883c" class=""><strong>8) Asset pipeline &amp; creation guide (based on repo docs)</strong></h2></div><div style="display:contents" dir="auto"><h3 id="2fcdb139-5a21-8099-b817-c20702933456" class=""><strong>Canonical sizes (from README + graphics_overview)</strong></h3></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8093-993a-d23cab91e508" class="bulleted-list"><li style="list-style-type:disc">Window: <strong>1600×900</strong> (base).</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80d4-a3b7-ca0780604466" class="bulleted-list"><li style="list-style-type:disc">Shop grid tile: <strong>48×48</strong>.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-804c-b649-cb3f8caeaa84" class="bulleted-list"><li style="list-style-type:disc">Card art: <strong>64×64</strong> (shop view), <strong>96×96</strong> (pack reveal).</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80ac-bb71-d7b61bb2d3b6" class="bulleted-list"><li style="list-style-type:disc">Pack card background: <strong>160×220</strong>.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8097-aa03-e6511f5525e8" class="bulleted-list"><li style="list-style-type:disc">Furniture: <strong>16×16 source</strong>, scaled to 48×48.</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8038-9ae1-f07679aacb0d" class="bulleted-list"><li style="list-style-type:disc">Customers: <strong>32×32 source</strong>, scaled to 40×40.</li></ul></div><div style="display:contents" dir="auto"><h3 id="2fcdb139-5a21-805a-b43c-ec7888cb2418" class=""><strong>Asset paths used today</strong></h3></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8041-8629-f095f8157a70" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/assets/tiny-creatures/Tiles/tile_####.png</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80e7-ac53-df2747b9beb2" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/assets/dungeon-crawl-utumno.png</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8085-ab93-ca0427536c4e" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/assets/shop/tiles/floor_#.png</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80c0-904d-ca9e695fce3b" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/assets/shop/tiles/customer_#.png</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8030-a38b-cee4aec2c04d" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/assets/shop/furniture.png</strong></code></li></ul></div><div style="display:contents" dir="auto"><h3 id="2fcdb139-5a21-809c-b7c8-ccb35b28c354" class=""><strong>Asset best practices (from docs)</strong></h3></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80a1-9244-d018e9ed95a6" class="bulleted-list"><li style="list-style-type:disc">Power‑of‑two sprite sizes (16/32/64)</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8098-9838-f38bdbc72090" class="bulleted-list"><li style="list-style-type:disc"><strong>No anti‑aliasing</strong></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80d4-a02e-d4d5868b7617" class="bulleted-list"><li style="list-style-type:disc">PNG with transparency</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-801f-b6c3-e64e5da486f2" class="bulleted-list"><li style="list-style-type:disc">Pre‑scale and cache (don’t scale per frame)</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-809a-87f9-f815bd492927" class="bulleted-list"><li style="list-style-type:disc">Consistent tile sizes per sheet</li></ul></div><div style="display:contents" dir="auto"><hr id="2fcdb139-5a21-8096-ad55-c5ab936b85a3"/></div><div style="display:contents" dir="auto"><h2 id="2fcdb139-5a21-8085-bbf1-fa0c8530c52f" class=""><strong>9) AI tools for asset generation (list + example prompts)</strong></h2></div><div style="display:contents" dir="auto"><h3 id="2fcdb139-5a21-80c3-b668-da2a616a34f6" class=""><strong>Recommended tool list</strong></h3></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8052-9e55-ca7e1a1e8c7c" class=""><strong>Generation</strong></p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-800b-8c12-d2b729a4ed3b" class="bulleted-list"><li style="list-style-type:disc"><strong>OpenAI Image / ChatGPT image generation</strong></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80db-9ccb-f4d487a6c9db" class="bulleted-list"><li style="list-style-type:disc"><strong>Midjourney</strong></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-809c-826f-e09d9f6cb9d8" class="bulleted-list"><li style="list-style-type:disc"><strong>Stable Diffusion (SDXL)</strong></li></ul></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80ba-9d9b-d4dff2102526" class=""><strong>Pixel conversion / cleanup</strong></p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80b6-bd4d-f02db8640e77" class="bulleted-list"><li style="list-style-type:disc"><strong>Aseprite</strong> (best all‑around for pixel work)</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80dd-b1f7-def1f8c021e2" class="bulleted-list"><li style="list-style-type:disc"><strong>LibreSprite / Piskel</strong> (free alternatives)</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8047-8a0d-e2992d78a468" class="bulleted-list"><li style="list-style-type:disc"><strong>Krita / Photoshop</strong> (cleanup + masking)</li></ul></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8023-a231-e92a279fe788" class=""><strong>Workflow automation</strong></p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-808d-b870-eda72e250ae4" class="bulleted-list"><li style="list-style-type:disc"><strong>ComfyUI</strong> (Stable Diffusion workflow engine)</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80e6-b56e-c0ce5be54826" class="bulleted-list"><li style="list-style-type:disc"><strong>ImageMagick</strong> (batch resize, palette reduce)</li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-805a-87a1-c92b76736a30" class="bulleted-list"><li style="list-style-type:disc"><strong>Python + Pillow</strong> (batch processing)</li></ul></div><div style="display:contents" dir="auto"><hr id="2fcdb139-5a21-8013-ac92-c2d85fa9fe06"/></div><div style="display:contents" dir="auto"><h3 id="2fcdb139-5a21-8009-8b6c-e9969b0298bb" class=""><strong>Example prompts (start with clean concepts)</strong></h3></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-809d-ab84-eb6d4f1a0eea" class=""><strong>A) Character art (clean source)</strong></p></div><div style="display:contents" dir="auto"><blockquote id="2fcdb139-5a21-80a8-8da7-d19ab8ff40ae" class=""><strong>“fantasy creature character concept, centered, full body, clear silhouette, minimal background, simple shapes, high contrast edges, front‑facing, no text, no watermark”</strong></blockquote></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-807c-9b67-f1b9615dda09" class=""><strong>B) Pixel‑specific prompt (if using pixel models)</strong></p></div><div style="display:contents" dir="auto"><blockquote id="2fcdb139-5a21-809f-9c2e-e0bd74fc49ee" class=""><strong>“pixel art, 32x32 sprite, top‑down RPG style, limited palette, crisp edges, no anti‑aliasing, transparent background, idle pose”</strong></blockquote></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-809c-a1ee-f5bc1441d7e0" class=""><strong>C) Tileable environment prompt</strong></p></div><div style="display:contents" dir="auto"><blockquote id="2fcdb139-5a21-8042-9093-d1f70a12c5a7" class=""><strong>“pixel art dungeon floor tiles, seamless tileable pattern, 16x16 tileset, limited palette, top‑down, no perspective”</strong></blockquote></div><div style="display:contents" dir="auto"><hr id="2fcdb139-5a21-808a-9e00-d9a6e759736d"/></div><div style="display:contents" dir="auto"><h2 id="2fcdb139-5a21-80da-a39e-c341a96defcd" class=""><strong>10) Converting AI art into perfect pixel assets (recommended pipeline)</strong></h2></div><div style="display:contents" dir="auto"><h3 id="2fcdb139-5a21-8022-ad96-e7751b001449" class=""><strong>Character sprites (transparent)</strong></h3></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-80d3-8cfc-e7b3c22d1a66" class="numbered-list" start="1"><li>Generate character concept on flat background.</li></ol></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-8063-97a0-eb5ff73422e9" class="numbered-list" start="2"><li>Remove background (Photoshop/Krita/Aseprite).</li></ol></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-803f-a823-f9c65f930007" class="numbered-list" start="3"><li>Downscale with <strong>nearest neighbor</strong> to 32×32 (or 16×16 source).</li></ol></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-809a-bc3b-e55d826bb1a7" class="numbered-list" start="4"><li>Palette reduce to 16–32 colors.</li></ol></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-805b-87b2-ccc4f8285886" class="numbered-list" start="5"><li>Hand‑clean edges in Aseprite.</li></ol></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-8046-af03-d9ac0356f244" class="numbered-list" start="6"><li>Build sprite sheet with directional frames.</li></ol></div><div style="display:contents" dir="auto"><h3 id="2fcdb139-5a21-8040-bb79-dfd14a849b63" class=""><strong>Environment / tiles</strong></h3></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-804b-9083-ed43e68df871" class="numbered-list" start="1"><li>Generate high‑res tile concept.</li></ol></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-801a-89e8-d2c21d273b4f" class="numbered-list" start="2"><li>Crop/tiling check.</li></ol></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-802e-8e36-f04933f86ae0" class="numbered-list" start="3"><li>Resize to 16×16 with nearest neighbor.</li></ol></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-8061-b6a4-ce0533c39abc" class="numbered-list" start="4"><li>Palette reduce and edge clean.</li></ol></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-809f-9589-f607b4bb73bc" class="numbered-list" start="5"><li>Export with consistent naming (<code><strong>tile_####.png</strong></code>).</li></ol></div><div style="display:contents" dir="auto"><hr id="2fcdb139-5a21-8072-bde0-de3cdbafdebb"/></div><div style="display:contents" dir="auto"><h2 id="2fcdb139-5a21-8043-8879-ef7980d2887b" class=""><strong>11) Gaps &amp; best‑practice improvements to prioritize</strong></h2></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80a8-a6ea-c784cf992483" class=""><strong>Most impactful next upgrades:</strong></p></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-8031-a44b-c8914049bd2c" class="numbered-list" start="1"><li><strong>Delayed orders + supplier pipeline</strong> (pending_orders with arrival day).</li></ol></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-8056-867a-c1bc6c29d821" class="numbered-list" start="2"><li><strong>Unified pricing controls</strong> inside ShopScene Manage tab.</li></ol></div><div style="display:contents" dir="auto"><ol type="1" id="2fcdb139-5a21-808b-9fae-f38ea563f543" class="numbered-list" start="3"><li><strong>Battle rewards / progression loop</strong> (tie battle to shop).</li></ol></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-8078-94bd-cbdb8e0c0a8c" class="">These align directly with the repo’s “not implemented” list and will create the most “sticky” progression loop.</p></div><div style="display:contents" dir="auto"><hr id="2fcdb139-5a21-806d-84ca-cc9f3fed4fd6"/></div><div style="display:contents" dir="auto"><h2 id="2fcdb139-5a21-8006-9ff2-c58638f37871" class=""><strong>Sources &amp; commands used</strong></h2></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80ef-970f-f86db099cd9b" class=""><strong>Files referenced:</strong></p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-806a-af6c-ee37270fef36" class="bulleted-list"><li style="list-style-type:disc"><code><strong>README.md</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-801a-ae77-ff1e8196c92e" class="bulleted-list"><li style="list-style-type:disc"><code><strong>graphics_overview.md</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80f2-96ea-cb18ada4f31f" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/cards/card_defs.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80a8-a5e5-fa54603d4ba3" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/cards/pack.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-805f-a6a1-da760ac0b3d2" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/cards/battle.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80d0-b7be-f99fed8314ac" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/cards/deck.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8062-8fc2-f41a2afca68b" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/cards/collection.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80f9-b842-dc8e940f5873" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/sim/economy.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80c9-a2e3-e35b823bf1b9" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/sim/shop.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8024-b0e1-db0d3d5366af" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/sim/inventory.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-808b-a05a-cb64d4f999b1" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/scenes/shop_scene.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8069-825a-c443d3c21a4a" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/scenes/manage_scene.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8093-a779-cbd7e7f2fbee" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/scenes/battle_scene.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8059-9fd1-d46988e157ee" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/core/app.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8015-b367-c7b262c8758b" class="bulleted-list"><li style="list-style-type:disc"><code><strong>game/assets/__init__.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80a1-9fad-f487f4727d31" class=""><strong>Commands run:</strong></p></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8056-8641-d96e06d0dc14" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;1,200p&#x27; README.md</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8019-ad86-ccf8a4b29850" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;1,200p&#x27; graphics_overview.md</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80ca-80c2-f752c70be844" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;1,200p&#x27; game/cards/card_defs.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80ea-a8d3-f750bd062d1f" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;1,200p&#x27; game/cards/pack.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8063-829d-dfff21bdb686" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;1,200p&#x27; game/sim/shop.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8088-b13f-e5530c4409f9" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;1,200p&#x27; game/sim/economy.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80c1-821b-cf2f9b12ad3d" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;1,200p&#x27; game/sim/inventory.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80cc-bf93-f16191bc0616" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;1,200p&#x27; game/scenes/shop_scene.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8005-8979-e3e5b0092110" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;200,400p&#x27; game/scenes/shop_scene.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80bb-a241-fb9d144811e7" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;400,800p&#x27; game/scenes/shop_scene.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80fd-96f0-ea862e6be7ca" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;1,200p&#x27; game/scenes/manage_scene.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80e9-b202-fd2016726bbc" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;200,400p&#x27; game/scenes/manage_scene.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8039-99a3-d7fabca5c6d8" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;1,200p&#x27; game/scenes/battle_scene.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80b3-b624-d5dcd48a7d1e" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;1,200p&#x27; game/cards/battle.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8091-9023-f24d560aec09" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;1,200p&#x27; game/cards/deck.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-8008-9381-d492704ff6a9" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;1,200p&#x27; game/cards/collection.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80f6-bb79-d6f8b832238e" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;1,200p&#x27; game/core/app.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-80e2-b153-d34ede5205f2" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;200,400p&#x27; game/core/app.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-806a-9c45-c7f3af482114" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;1,200p&#x27; game/assets/__init__.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><ul id="2fcdb139-5a21-803c-8d69-db757b81e638" class="bulleted-list"><li style="list-style-type:disc"><code><strong>sed -n &#x27;200,400p&#x27; game/assets/__init__.py</strong></code></li></ul></div><div style="display:contents" dir="auto"><hr id="2fcdb139-5a21-80a2-a765-f198ade3388c"/></div><div style="display:contents" dir="auto"><p id="2fcdb139-5a21-80bb-8719-d025e2a8ed5b" class="">If you want, I can next produce <strong>concrete data schemas</strong> (cards → packs → shop SKUs) and a <strong>validation/loader layer</strong> (with tests) tailored to this repo’s structure.</p></div></div></article><span class="sans" style="font-size:14px;padding-top:2em"></span></body></html>

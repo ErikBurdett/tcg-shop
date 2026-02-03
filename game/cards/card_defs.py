@@ -11,20 +11,71 @@ class CardDef:
     cost: int
     attack: int
     health: int
+    description: str
 
 
 def _build_cards() -> list[CardDef]:
     cards: list[CardDef] = []
     for idx in range(1, 13):
-        cards.append(CardDef(f"c{idx}", f"Sproutling {idx}", "common", 1, 1 + idx % 2, 2))
+        cards.append(
+            CardDef(
+                f"c{idx}",
+                f"Sproutling {idx}",
+                "common",
+                1,
+                1 + idx % 2,
+                2,
+                "A hardy sproutling that grows with the tide.",
+            )
+        )
     for idx in range(1, 9):
-        cards.append(CardDef(f"u{idx}", f"River Guard {idx}", "uncommon", 2, 2 + idx % 2, 3))
+        cards.append(
+            CardDef(
+                f"u{idx}",
+                f"River Guard {idx}",
+                "uncommon",
+                2,
+                2 + idx % 2,
+                3,
+                "A vigilant sentinel sworn to protect the ford.",
+            )
+        )
     for idx in range(1, 6):
-        cards.append(CardDef(f"r{idx}", f"Skyblade {idx}", "rare", 3, 3 + idx % 2, 4))
+        cards.append(
+            CardDef(
+                f"r{idx}",
+                f"Skyblade {idx}",
+                "rare",
+                3,
+                3 + idx % 2,
+                4,
+                "An agile duelist who strikes from above.",
+            )
+        )
     for idx in range(1, 4):
-        cards.append(CardDef(f"e{idx}", f"Voidcaller {idx}", "epic", 4, 4 + idx % 2, 5))
+        cards.append(
+            CardDef(
+                f"e{idx}",
+                f"Voidcaller {idx}",
+                "epic",
+                4,
+                4 + idx % 2,
+                5,
+                "A warlock channeling the abyss.",
+            )
+        )
     for idx in range(1, 3):
-        cards.append(CardDef(f"l{idx}", f"Ancient Wyrm {idx}", "legendary", 5, 6, 6))
+        cards.append(
+            CardDef(
+                f"l{idx}",
+                f"Ancient Wyrm {idx}",
+                "legendary",
+                5,
+                6,
+                6,
+                "An elder dragon of mythic power.",
+            )
+        )
     return cards
 
 

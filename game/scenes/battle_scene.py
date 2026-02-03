@@ -134,8 +134,14 @@ class BattleScene(Scene):
             # Draw border with rarity color
             rarity_color = self._rarity_border_color(card.rarity)
             pygame.draw.rect(surface, rarity_color, rect, 2)
-            
-            # Draw stats at bottom
+            # Draw id, name, description, stats
+            id_text = self.theme.font_small.render(card.card_id.upper(), True, self.theme.colors.muted)
+            surface.blit(id_text, (rect.x + 4, rect.y + 2))
+            name_text = self.theme.font_small.render(card.name[:10], True, self.theme.colors.text)
+            surface.blit(name_text, (rect.x + 4, rect.y + 14))
+            desc = (card.description[:12] + "...") if len(card.description) > 12 else card.description
+            desc_text = self.theme.font_small.render(desc, True, self.theme.colors.muted)
+            surface.blit(desc_text, (rect.x + 4, rect.y + 28))
             stats = self.theme.font_small.render(f"{card.cost}/{card.attack}/{card.health}", True, self.theme.colors.text)
             surface.blit(stats, (rect.x + 4, rect.bottom - 18))
 
@@ -165,8 +171,14 @@ class BattleScene(Scene):
                 # Draw border with rarity color
                 rarity_color = self._rarity_border_color(card.rarity)
                 pygame.draw.rect(surface, rarity_color, rect, 2)
-                
-                # Draw stats at bottom
+                # Draw id, name, description, stats
+                id_text = self.theme.font_small.render(card.card_id.upper(), True, self.theme.colors.muted)
+                surface.blit(id_text, (rect.x + 4, rect.y + 2))
+                name_text = self.theme.font_small.render(card.name[:10], True, self.theme.colors.text)
+                surface.blit(name_text, (rect.x + 4, rect.y + 14))
+                desc = (card.description[:12] + "...") if len(card.description) > 12 else card.description
+                desc_text = self.theme.font_small.render(desc, True, self.theme.colors.muted)
+                surface.blit(desc_text, (rect.x + 4, rect.y + 28))
                 stats = self.theme.font_small.render(
                     f"{minion.attack}/{minion.health}", True, self.theme.colors.text
                 )

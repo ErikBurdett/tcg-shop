@@ -84,20 +84,20 @@ class ManageScene(Scene):
         if self.app.state.money < cost:
             return
         self.app.state.money -= cost
-        self.app.state.pending_orders.append(InventoryOrder(5, 0, {}, cost))
+        self.app.state.pending_orders.append(InventoryOrder(5, 0, {}, cost, self.app.state.day + 1))
 
     def _order_decks(self) -> None:
         cost = 30
         if self.app.state.money < cost:
             return
         self.app.state.money -= cost
-        self.app.state.pending_orders.append(InventoryOrder(0, 3, {}, cost))
+        self.app.state.pending_orders.append(InventoryOrder(0, 3, {}, cost, self.app.state.day + 1))
 
     def _order_singles(self, rarity: str, cost: int) -> None:
         if self.app.state.money < cost:
             return
         self.app.state.money -= cost
-        self.app.state.pending_orders.append(InventoryOrder(0, 0, {rarity: 5}, cost))
+        self.app.state.pending_orders.append(InventoryOrder(0, 0, {rarity: 5}, cost, self.app.state.day + 1))
 
     def _refresh_shelves(self) -> None:
         layout = self.app.state.shop_layout

@@ -90,11 +90,17 @@ class PackOpenScene(Scene):
                 pygame.draw.rect(surface, rarity_color, rect, 3)
                 
                 # Draw card name at top
-                text = self.theme.font_small.render(card.name, True, self.theme.colors.text)
-                text_rect = text.get_rect(centerx=rect.centerx, top=rect.y + 8)
-                surface.blit(text, text_rect)
+                id_text = self.theme.font_small.render(card.card_id.upper(), True, self.theme.colors.muted)
+                surface.blit(id_text, (rect.x + 8, rect.y + 6))
+                name_text = self.theme.font_small.render(card.name, True, self.theme.colors.text)
+                name_rect = name_text.get_rect(centerx=rect.centerx, top=rect.y + 20)
+                surface.blit(name_text, name_rect)
                 
-                # Draw stats at bottom
+                # Draw description and stats
+                desc = (card.description[:30] + "...") if len(card.description) > 30 else card.description
+                desc_text = self.theme.font_small.render(desc, True, self.theme.colors.muted)
+                desc_rect = desc_text.get_rect(centerx=rect.centerx, bottom=rect.bottom - 28)
+                surface.blit(desc_text, desc_rect)
                 stats = self.theme.font_small.render(
                     f"{card.cost} / {card.attack} / {card.health}", True, self.theme.colors.text
                 )

@@ -50,6 +50,8 @@ class ShopLayout:
     def place(self, kind: str, tile: tuple[int, int]) -> None:
         if not self._in_bounds(tile):
             return
+        if self.object_at(tile) is not None:
+            return
         self.objects.append(ShopObject(kind, tile))
         if kind == "shelf":
             self.shelf_stocks.setdefault(self._key(tile), ShelfStock("empty", 0))

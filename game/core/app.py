@@ -148,10 +148,14 @@ class GameApp:
     def save_game(self) -> None:
         self.save.save(self.state.to_dict())
 
-    def apply_end_of_day_orders(self) -> None:
+    def apply_end_of_day_orders(self, current_day: int) -> None:
+        remaining: list[InventoryOrder] = []
         for order in self.state.pending_orders:
-            self.state.inventory.apply_order(order)
-        self.state.pending_orders.clear()
+            if order.arrival_day <= current_day:
+                self.state.inventory.apply_order(order)
+            else:
+                remaining.append(order)
+        self.state.pending_orders = remaining
 
     def run(self) -> None:
         while self.running:
