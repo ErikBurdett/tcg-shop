@@ -24,6 +24,7 @@ python main.py
 - F3: Toggle debug overlay
 - ` (backtick): Toggle dev console
 - SPACE: End turn (battle)
+- Bottom-left: Start/Stop day controls (global)
 
 ## Gameplay Loop
 1. Run the shop day in the top-down scene.
@@ -32,6 +33,25 @@ python main.py
 4. Build a 20-card deck in Deck.
 5. Battle AI in Battle.
 6. Save/load via Menu.
+
+## What’s New (recent changes)
+- **Unified UI improvements**
+  - **Tabs never overflow**: top nav wraps to multiple rows on small windows.
+  - **Global Start/Stop Day**: pinned bottom-left across screens via the base `Scene`.
+  - **Draggable/resizable panels**: ordering/stocking/inventory/book/deck panels can be moved/resized.
+- **Order management**
+  - Orders are **delivered ~30 seconds after purchase** (real-time), not “next day”.
+  - Manage inventory shows an **Incoming (ETA)** queue.
+- **Pricing + market**
+  - More **MTG-like retail defaults** for boosters/decks/singles by rarity.
+  - **Wholesale ordering** derived from retail (simple margin model).
+  - You can **buy random singles** by rarity (adds a random card of that rarity).
+- **Shelf listing**
+  - Shelves can hold **specific listed card IDs** (not only “single_rare xN”).
+  - In Manage, “List Selected Card” opens a **collection card book menu** where you pick a card and list it to the selected shelf.
+  - Selecting a shelf now shows **its contents** (including listed cards summary) in the Inventory panel.
+- **Visual**
+  - Cards gain a subtle **rarity-colored edge glow** in key UI renders.
 
 ## Asset Specs
 ### Global Pixel Sizes
@@ -63,19 +83,23 @@ python main.py
 - [x] Shop grid placement (shelves, counter, poster)
 - [x] Customer traffic and purchases
 - [x] Inventory ordering and shelf stocking
+- [x] Delayed delivery queue (real-time, ~30s)
+- [x] Pricing controls in unified Manage UI
+- [x] Buy random singles by rarity
+- [x] List specific cards onto shelves for sale
 - [x] Booster pack generation and collection
 - [x] Deck build rules (20 cards, max 2 copies)
 - [x] Battle flow with AI
 - [x] Unified single-screen UI tabs
+- [x] Responsive UI (tab wrapping) + draggable panels
 - [x] Save/load system
 - [x] Dev console commands
 
 ### Not Implemented / Incomplete
-- [ ] Pricing controls in unified Manage UI
-- [ ] Delayed order delivery (orders are instant)
+- [ ] Sell flow UI (buylist/retail sliders, confirmations, receipts)
 - [ ] Auto-restock / demand forecasting
 - [ ] Pack opening FX and pack artwork
-- [ ] Collection browser with filters/sorting
+- [ ] Collection browser filters/sorting/search (rarity, name, owned, value)
 - [ ] Battle rewards + progression loop
 - [ ] Placement rules / collision constraints
 - [ ] Accessibility options (text size, contrast)
@@ -130,6 +154,11 @@ Open with ` and enter commands:
 - `money 500` (add money)
 - `packs 3` (add boosters)
 - `deckfill` (quick fill deck)
+
+## UI / Documentation
+- `graphics_overview.md`: rendering + asset pipeline reference
+- `UI.md`: UI architecture, best practices, and UI roadmap
+- `TCG_Sim_ OverView Roadmap.md`: higher-level feature roadmap
 
 ## Tests
 Run sanity checks:

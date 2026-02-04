@@ -7,6 +7,7 @@ from game.ui.widgets import Button, Panel, Tooltip
 from game.cards.pack import open_booster
 from game.cards.card_defs import CARD_INDEX
 from game.assets import get_asset_manager
+from game.ui.effects import draw_glow_border
 
 
 class PackOpenScene(Scene):
@@ -87,7 +88,7 @@ class PackOpenScene(Scene):
                 
                 # Draw rarity border
                 rarity_color = self._rarity_color(card.rarity)
-                pygame.draw.rect(surface, rarity_color, rect, 3)
+                draw_glow_border(surface, rect, rarity_color, border_width=3, glow_radius=5, glow_alpha=90)
                 
                 # Draw card name at top
                 id_text = self.theme.font_small.render(card.card_id.upper(), True, self.theme.colors.muted)

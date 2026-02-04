@@ -13,6 +13,7 @@ class InventoryOrder:
     singles: dict[str, int]
     cost: int
     arrival_day: int = 0
+    deliver_at: float = 0.0
 
     def to_dict(self) -> dict:
         return {
@@ -21,6 +22,7 @@ class InventoryOrder:
             "singles": self.singles,
             "cost": self.cost,
             "arrival_day": self.arrival_day,
+            "deliver_at": self.deliver_at,
         }
 
     @classmethod
@@ -31,6 +33,7 @@ class InventoryOrder:
             data.get("singles", {}),
             data.get("cost", 0),
             data.get("arrival_day", 0),
+            float(data.get("deliver_at", 0.0)),
         )
 
 

@@ -7,13 +7,21 @@ Rendering is immediate-mode: each frame clears the screen and draws layered surf
 
 ### Draw Order (Shop Scene)
 The shop scene draws the floor, objects, customers, and then UI elements. This ordering keeps gameplay visuals beneath the UI.
-```472:486:game/scenes/shop_scene.py
+```814:836:game/scenes/shop_scene.py
     def draw(self, surface: pygame.Surface) -> None:
         super().draw(surface)
         self._draw_grid(surface)
         self._draw_objects(surface)
         self._draw_customers(surface)
-        self.panel.draw(surface, self.theme)
+        self.order_panel.draw(surface, self.theme)
+        if self.current_tab == "manage":
+            self.stock_panel.draw(surface, self.theme)
+            self.inventory_panel.draw(surface, self.theme)
+            if self.manage_card_book_open:
+                self.book_panel.draw(surface, self.theme)
+        if self.current_tab == "deck":
+            self.book_panel.draw(surface, self.theme)
+            self.deck_panel.draw(surface, self.theme)
         for button in self.buttons:
             button.draw(surface, self.theme)
         for tb in self.tab_buttons:
@@ -26,8 +34,8 @@ The shop scene draws the floor, objects, customers, and then UI elements. This o
 ```
 
 ### Pack Reveal Rendering
-Pack cards are rendered with a gradient background, a centered sprite, and a rarity border.
-```67:107:game/scenes/pack_open_scene.py
+Pack cards are rendered with a gradient background, a centered sprite, and a rarity border with a subtle glow.
+```68:114:game/scenes/pack_open_scene.py
     def _draw_cards(self, surface: pygame.Surface) -> None:
         start_x = 100
         y = 160
@@ -38,17 +46,49 @@ Pack cards are rendered with a gradient background, a centered sprite, and a rar
             if idx < self.reveal_index:
                 card = CARD_INDEX[card_id]
                 
+                # Draw card background with dark fantasy gradient
                 bg = asset_mgr.create_card_background(card.rarity, (rect.width, rect.height))
                 surface.blit(bg, rect.topleft)
                 
+                # Draw card sprite centered in upper portion
                 sprite = asset_mgr.get_card_sprite(card_id, (96, 96))
                 if sprite:
                     sprite_x = rect.x + (rect.width - 96) // 2
                     sprite_y = rect.y + 30
                     surface.blit(sprite, (sprite_x, sprite_y))
                 
+                # Draw rarity border
                 rarity_color = self._rarity_color(card.rarity)
-                pygame.draw.rect(surface, rarity_color, rect, 3)
+                draw_glow_border(surface, rect, rarity_color, border_width=3, glow_radius=5, glow_alpha=90)
+                
+                # Draw card name at top
+                id_text = self.theme.font_small.render(card.card_id.upper(), True, self.theme.colors.muted)
+                surface.blit(id_text, (rect.x + 8, rect.y + 6))
+```
+
+### Rarity Glow Utility
+The glow border helper lives in `game/ui/effects.py` and is used across multiple card renderers.
+```6:37:game/ui/effects.py
+def draw_glow_border(
+    surface: pygame.Surface,
+    rect: pygame.Rect,
+    color: tuple[int, int, int],
+    *,
+    border_width: int = 2,
+    glow_radius: int = 4,
+    glow_alpha: int = 80,
+    border_radius: int = 0,
+) -> None:
+    if glow_radius > 0 and glow_alpha > 0:
+        gw = rect.width + glow_radius * 2
+        gh = rect.height + glow_radius * 2
+        glow = pygame.Surface((gw, gh), pygame.SRCALPHA)
+        for i in range(glow_radius, 0, -1):
+            a = int(glow_alpha * (i / glow_radius) ** 2)
+            ring_rect = pygame.Rect(glow_radius - i, glow_radius - i, rect.width + i * 2, rect.height + i * 2)
+            pygame.draw.rect(glow, (color[0], color[1], color[2], a), ring_rect, width=1)
+        surface.blit(glow, (rect.x - glow_radius, rect.y - glow_radius))
+    pygame.draw.rect(surface, color, rect, width=border_width, border_radius=border_radius)
 ```
 
 ## Sprite Methodology

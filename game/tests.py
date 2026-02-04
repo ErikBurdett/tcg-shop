@@ -9,6 +9,8 @@ from game.cards.battle import BattleState
 from game.cards.card_defs import get_all_cards
 from game.sim.economy import choose_purchase
 from game.config import Prices
+from game.sim.inventory import Inventory, InventoryOrder
+from game.sim.shop import ShopLayout
 
 
 def test_pack_generation() -> None:
@@ -47,12 +49,36 @@ def test_economy_purchase() -> None:
     item = choose_purchase(prices, available, rng)
     assert item in {"booster", "single_common", "none"}
 
+def test_shop_no_overlap_place() -> None:
+    layout = ShopLayout()
+    layout.objects.clear()
+    layout.shelf_stocks.clear()
+    layout.place("shelf", (2, 2))
+    layout.place("counter", (2, 2))
+    assert len(layout.objects) == 1
+
+
+def test_order_delivery_apply() -> None:
+    inv = Inventory()
+    order = InventoryOrder(5, 0, {}, 20, 0, 10.0)
+    # should not apply until delivery time, mimicking app logic
+    now = 9.0
+    if order.deliver_at <= now:
+        inv.apply_order(order)
+    assert inv.booster_packs == 0
+    now = 10.0
+    if order.deliver_at <= now:
+        inv.apply_order(order)
+    assert inv.booster_packs == 5
+
 
 def run() -> None:
     test_pack_generation()
     test_deck_rules()
     test_battle_flow()
     test_economy_purchase()
+    test_shop_no_overlap_place()
+    test_order_delivery_apply()
     print("Sanity checks passed.")
 
 

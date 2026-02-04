@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from game.config import SHOP_GRID
 
@@ -23,13 +23,19 @@ class ShelfStock:
     product: str
     qty: int
     max_qty: int = 10
+    cards: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        return {"product": self.product, "qty": self.qty, "max_qty": self.max_qty}
+        return {"product": self.product, "qty": self.qty, "max_qty": self.max_qty, "cards": list(self.cards)}
 
     @classmethod
     def from_dict(cls, data: dict) -> "ShelfStock":
-        return cls(data["product"], data["qty"], data.get("max_qty", 10))
+        return cls(
+            data["product"],
+            data["qty"],
+            data.get("max_qty", 10),
+            list(data.get("cards", [])),
+        )
 
 
 class ShopLayout:

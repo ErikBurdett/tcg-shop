@@ -13,6 +13,7 @@ from game.cards.card_defs import CARD_INDEX
 from game.cards.pack import open_booster
 from game.assets import get_asset_manager
 from game.assets.shop import get_shop_asset_manager
+from game.ui.effects import draw_glow_border
 
 MINI_GRID = (14, 8)
 MINI_TILE = 42
@@ -68,6 +69,9 @@ class ShopScene(Scene):
         ]
         self.card_book_scroll = 0
         self.selected_card_id: str | None = None
+        # Manage "List Selected Card" menu state (card book overlay)
+        self.manage_card_book_open = False
+        self.market_rarity_index = 0
         self.buttons: list[Button] = []
         self._floor_surface: pygame.Surface | None = None
         self._layout_initialized = False
@@ -146,6 +150,29 @@ class ShopScene(Scene):
         rect.y = max(self._top_bar_height + 8, min(rect.y, height - rect.height - 8))
         return rect
 
+    def _open_list_card_menu(self) -> None:
+        self.manage_card_book_open = True
+        self._build_buttons()
+
+    def _close_list_card_menu(self) -> None:
+        self.manage_card_book_open = False
+        self._build_buttons()
+
+    def _card_book_controls_height(self) -> int:
+        # Extra space for card-market + list-to-shelf controls.
+        if self.current_tab == "manage" and self.manage_card_book_open:
+            return 64
+        return 0
+
+    def _card_book_content_rect(self) -> pygame.Rect:
+        book_rect = self.book_panel.rect
+        padding = 12
+        controls_h = self._card_book_controls_height()
+        top = book_rect.y + 36 + controls_h
+        bottom_pad = 12
+        height = max(80, book_rect.bottom - bottom_pad - top)
+        return pygame.Rect(book_rect.x + padding, top, book_rect.width - padding * 2, height)
+
     def _build_buttons(self) -> None:
         self._build_tab_btns()
         button_width = self.order_panel.rect.width - 40
@@ -154,10 +181,9 @@ class ShopScene(Scene):
             x = self.order_panel.rect.x + 20
             y = self.order_panel.rect.y + 40
             self.buttons = [
-                Button(pygame.Rect(x, y, button_width, 34), "Start Day", self.start_day),
-                Button(pygame.Rect(x, y + 46, button_width, 30), "Shelf", lambda: self._set_object("shelf")),
-                Button(pygame.Rect(x, y + 82, button_width, 30), "Counter", lambda: self._set_object("counter")),
-                Button(pygame.Rect(x, y + 118, button_width, 30), "Poster", lambda: self._set_object("poster")),
+                Button(pygame.Rect(x, y, button_width, 30), "Shelf", lambda: self._set_object("shelf")),
+                Button(pygame.Rect(x, y + 36, button_width, 30), "Counter", lambda: self._set_object("counter")),
+                Button(pygame.Rect(x, y + 72, button_width, 30), "Poster", lambda: self._set_object("poster")),
             ]
         elif self.current_tab == "packs":
             x = self.order_panel.rect.x + 20
@@ -173,12 +199,30 @@ class ShopScene(Scene):
             stock_y = self.stock_panel.rect.y + 40
             stock_width = self.stock_panel.rect.width - 40
             half = (stock_width - 10) // 2
+            booster_qty = 12
+            deck_qty = 4
+            singles_qty = 10
+            booster_cost = self._wholesale_cost("booster", booster_qty)
+            deck_cost = self._wholesale_cost("deck", deck_qty)
+            singles_product = self._selected_single_product()
+            singles_rarity = singles_product.replace("single_", "")
+            singles_cost = self._wholesale_cost(singles_product, singles_qty)
             self.buttons = [
-                Button(pygame.Rect(order_x, order_y, button_width, 32), "Order Boosters ($20)", self._order_boosters),
-                Button(pygame.Rect(order_x, order_y + 38, button_width, 32), "Order Decks ($30)", self._order_decks),
-                Button(pygame.Rect(order_x, order_y + 76, button_width, 32), "Order Singles (x5)", self._order_singles_current),
-                Button(pygame.Rect(order_x, order_y + 120, button_width, 28), "Price -", lambda: self._adjust_price(-1)),
-                Button(pygame.Rect(order_x, order_y + 152, button_width, 28), "Price +", lambda: self._adjust_price(1)),
+                Button(
+                    pygame.Rect(order_x, order_y, button_width, 32),
+                    f"Order {booster_qty} Boosters (${booster_cost})",
+                    self._order_boosters,
+                ),
+                Button(
+                    pygame.Rect(order_x, order_y + 38, button_width, 32),
+                    f"Order {deck_qty} Decks (${deck_cost})",
+                    self._order_decks,
+                ),
+                Button(
+                    pygame.Rect(order_x, order_y + 76, button_width, 32),
+                    f"Order {singles_qty} {singles_rarity.title()} Singles (${singles_cost})",
+                    self._order_singles_current,
+                ),
                 Button(pygame.Rect(stock_x, stock_y, half, 28), "Booster", lambda: self._set_product("booster")),
                 Button(pygame.Rect(stock_x + half + 10, stock_y, half, 28), "Deck", lambda: self._set_product("deck")),
                 Button(pygame.Rect(stock_x, stock_y + 32, half, 28), "Common", lambda: self._set_product("single_common")),
@@ -186,21 +230,70 @@ class ShopScene(Scene):
                 Button(pygame.Rect(stock_x, stock_y + 64, half, 28), "Rare", lambda: self._set_product("single_rare")),
                 Button(pygame.Rect(stock_x + half + 10, stock_y + 64, half, 28), "Epic", lambda: self._set_product("single_epic")),
                 Button(pygame.Rect(stock_x, stock_y + 96, half, 28), "Legendary", lambda: self._set_product("single_legendary")),
-                Button(pygame.Rect(stock_x, stock_y + 132, stock_width, 28), "Stock 1", lambda: self._stock_shelf(1)),
-                Button(pygame.Rect(stock_x, stock_y + 164, stock_width, 28), "Stock 5", lambda: self._stock_shelf(5)),
-                Button(pygame.Rect(stock_x, stock_y + 196, stock_width, 28), "Fill Shelf", self._fill_shelf),
-                Button(pygame.Rect(stock_x, stock_y + 228, stock_width, 28), "Prev Shelf", lambda: self._select_adjacent_shelf(-1)),
-                Button(pygame.Rect(stock_x, stock_y + 260, stock_width, 28), "Next Shelf", lambda: self._select_adjacent_shelf(1)),
-                Button(pygame.Rect(stock_x, stock_y + 292, stock_width, 28), "Clear Selection", self._clear_shelf_selection),
+                Button(pygame.Rect(stock_x, stock_y + 132, half, 28), "Price -1", lambda: self._adjust_price(-1)),
+                Button(pygame.Rect(stock_x + half + 10, stock_y + 132, half, 28), "Price +1", lambda: self._adjust_price(1)),
+                Button(pygame.Rect(stock_x, stock_y + 164, half, 28), "Price -5", lambda: self._adjust_price(-5)),
+                Button(pygame.Rect(stock_x + half + 10, stock_y + 164, half, 28), "Price +5", lambda: self._adjust_price(5)),
+                Button(pygame.Rect(stock_x, stock_y + 200, stock_width, 28), "Stock 1", lambda: self._stock_shelf(1)),
+                Button(pygame.Rect(stock_x, stock_y + 232, stock_width, 28), "Stock 5", lambda: self._stock_shelf(5)),
+                Button(pygame.Rect(stock_x, stock_y + 264, stock_width, 28), "Fill Shelf", self._fill_shelf),
+                Button(pygame.Rect(stock_x, stock_y + 296, stock_width, 28), "List Selected Card", self._open_list_card_menu),
+                Button(pygame.Rect(stock_x, stock_y + 328, stock_width, 28), "Prev Shelf", lambda: self._select_adjacent_shelf(-1)),
+                Button(pygame.Rect(stock_x, stock_y + 360, stock_width, 28), "Next Shelf", lambda: self._select_adjacent_shelf(1)),
+                Button(pygame.Rect(stock_x, stock_y + 392, stock_width, 28), "Clear Selection", self._clear_shelf_selection),
             ]
+            if self.manage_card_book_open:
+                book = self.book_panel.rect
+                bx = book.x + 12
+                by = book.y + 32
+                bh = 28
+                gap = 8
+                close_btn = Button(pygame.Rect(book.right - 12 - 90, by, 90, bh), "Close", self._close_list_card_menu)
+                list_btn = Button(pygame.Rect(bx, by, 200, bh), "List 1 to Shelf", self._list_selected_card_to_shelf)
+                list_btn.enabled = self._can_list_selected_card_to_shelf()
+                r1y = by + bh + gap
+                r_btn_w = 90
+                rarity = RARITIES[self.market_rarity_index]
+                buy_price = self._market_buy_price(rarity)
+                rarity_minus = Button(pygame.Rect(bx, r1y, r_btn_w, bh), "Rarity -", self._prev_market_rarity)
+                rarity_plus = Button(pygame.Rect(bx + r_btn_w + gap, r1y, r_btn_w, bh), "Rarity +", self._next_market_rarity)
+                buy_btn = Button(
+                    pygame.Rect(bx + (r_btn_w + gap) * 2, r1y, book.width - 24 - (r_btn_w + gap) * 2, bh),
+                    f"Buy Random {rarity.title()} (${buy_price})",
+                    self._buy_market_single,
+                )
+                self.buttons.extend([close_btn, list_btn, rarity_minus, rarity_plus, buy_btn])
+            # If the shelf list overlaps controls, push it below the last stock control.
+            stock_btns = [b for b in self.buttons if self.stock_panel.rect.collidepoint(b.rect.center)]
+            if stock_btns:
+                bottom = max(b.rect.bottom for b in stock_btns)
+                desired_top = bottom + 18
+                desired = pygame.Rect(
+                    self.stock_panel.rect.x + 12,
+                    desired_top,
+                    self.stock_panel.rect.width - 24,
+                    max(120, self.stock_panel.rect.bottom - desired_top - 12),
+                )
+                if any(b.rect.colliderect(self.shelf_list.rect) for b in stock_btns):
+                    self.shelf_list.rect = desired
         elif self.current_tab == "deck":
             x = self.order_panel.rect.x + 20
             y = self.order_panel.rect.y + 40
+            half = (button_width - 10) // 2
+            rarity = RARITIES[self.market_rarity_index]
+            buy_price = self._market_buy_price(rarity)
             self.buttons = [
                 Button(pygame.Rect(x, y, button_width, 32), "Add to Deck", self._add_selected_card),
                 Button(pygame.Rect(x, y + 38, button_width, 32), "Remove from Deck", self._remove_selected_card),
                 Button(pygame.Rect(x, y + 76, button_width, 32), "Auto Fill", self._auto_fill_deck),
                 Button(pygame.Rect(x, y + 114, button_width, 32), "Clear Deck", self._clear_deck),
+                Button(pygame.Rect(x, y + 160, half, 28), "Rarity -", self._prev_market_rarity),
+                Button(pygame.Rect(x + half + 10, y + 160, half, 28), "Rarity +", self._next_market_rarity),
+                Button(
+                    pygame.Rect(x, y + 194, button_width, 30),
+                    f"Buy Random {rarity.title()} (${buy_price})",
+                    self._buy_market_single,
+                ),
             ]
         elif self.current_tab == "battle":
             x = self.order_panel.rect.x + 20
@@ -211,16 +304,23 @@ class ShopScene(Scene):
 
     def _build_tab_btns(self) -> None:
         self.tab_buttons = []
-        x = 20
-        y = 8
+        width, _ = self.app.screen.get_size()
+        x0 = 20
+        y0 = 8
         btn_w = 120
         btn_h = 32
         gap = 12
+        # Wrap tabs to multiple rows if needed.
+        per_row = max(1, (width - x0 * 2) // (btn_w + gap))
         for i, tab in enumerate(self.tabs):
-            rect = pygame.Rect(x + i * (btn_w + gap), y, btn_w, btn_h)
+            row = i // per_row
+            col = i % per_row
+            rect = pygame.Rect(x0 + col * (btn_w + gap), y0 + row * (btn_h + 8), btn_w, btn_h)
             self.tab_buttons.append(Button(rect, tab.title(), lambda t=tab: self._switch_tab(t)))
 
     def _switch_tab(self, tab: str) -> None:
+        if tab != "manage":
+            self.manage_card_book_open = False
         self.current_tab = tab
         self._build_buttons()
         if tab == "manage":
@@ -245,6 +345,8 @@ class ShopScene(Scene):
     def _set_product(self, product: str) -> None:
         if product in self.products:
             self.product_index = self.products.index(product)
+            if self.current_tab == "manage":
+                self._build_buttons()
 
     def _adjust_price(self, delta: int) -> None:
         product = self.products[self.product_index]
@@ -253,6 +355,8 @@ class ShopScene(Scene):
             return
         current = getattr(self.app.state.prices, price_attr)
         setattr(self.app.state.prices, price_attr, max(1, current + delta))
+        if self.current_tab == "manage":
+            self._build_buttons()
 
     def _price_attr_for_product(self, product: str) -> str | None:
         if product == "booster":
@@ -272,6 +376,49 @@ class ShopScene(Scene):
             "epic": prices.single_epic,
             "legendary": prices.single_legendary,
         }.get(rarity, prices.single_common)
+
+    def _market_buy_price(self, rarity: str) -> int:
+        return self._card_value(rarity)
+
+    def _prev_market_rarity(self) -> None:
+        self.market_rarity_index = (self.market_rarity_index - 1) % len(RARITIES)
+        self._build_buttons()
+
+    def _next_market_rarity(self) -> None:
+        self.market_rarity_index = (self.market_rarity_index + 1) % len(RARITIES)
+        self._build_buttons()
+
+    def _buy_market_single(self) -> None:
+        rarity = RARITIES[self.market_rarity_index]
+        price = self._market_buy_price(rarity)
+        if self.app.state.money < price:
+            return
+        pool = [cid for cid, c in CARD_INDEX.items() if c.rarity == rarity]
+        if not pool:
+            return
+        self.app.state.money -= price
+        card_id = self.app.rng.choice(pool)
+        self.app.state.collection.add(card_id, 1)
+        self.selected_card_id = card_id
+        self._build_buttons()
+
+    def _selected_single_product(self) -> str:
+        product = self.products[self.product_index]
+        if product.startswith("single_"):
+            return product
+        return "single_common"
+
+    def _wholesale_cost(self, product: str, qty: int) -> int:
+        prices = self.app.state.prices
+        if product == "booster":
+            retail = prices.booster
+        elif product == "deck":
+            retail = prices.deck
+        elif product.startswith("single_"):
+            retail = getattr(prices, product, prices.single_common)
+        else:
+            retail = 1
+        return max(1, int(round(retail * 0.6 * qty)))
 
     def _add_selected_card(self) -> None:
         if not self.selected_card_id:
@@ -311,13 +458,20 @@ class ShopScene(Scene):
         items: list[ScrollItem] = []
         for key, stock in layout.shelf_stocks.items():
             x, y = key.split(",")
-            label = f"Shelf ({x},{y}) - {stock.product} x{stock.qty}"
+            listed = ""
+            if getattr(stock, "cards", None):
+                listed = " (listed)"
+            label = f"Shelf ({x},{y}) - {stock.product} x{stock.qty}{listed}"
             items.append(ScrollItem(key, label, stock))
         self.shelf_list.items = items
         self.shelf_list.on_select = self._select_shelf
 
     def _select_shelf(self, item: ScrollItem) -> None:
         self.selected_shelf_key = item.key
+        if self.current_tab == "manage":
+            self._build_buttons()
+        if self.current_tab == "manage":
+            self._build_buttons()
 
     def _prev_product(self) -> None:
         self.product_index = (self.product_index - 1) % len(self.products)
@@ -341,6 +495,9 @@ class ShopScene(Scene):
         layout = self.app.state.shop_layout
         shelf = layout.shelf_stocks.get(self.selected_shelf_key)
         if not shelf:
+            return
+        # If this shelf is holding specific listed cards, don't overwrite with bulk stock.
+        if getattr(shelf, "cards", None) and shelf.cards:
             return
         product = self.products[self.product_index]
         capacity = shelf.max_qty - shelf.qty
@@ -368,39 +525,89 @@ class ShopScene(Scene):
         else:
             return
         shelf.product = product
+        if hasattr(shelf, "cards"):
+            shelf.cards.clear()
         shelf.qty += to_add
         self._refresh_shelves()
 
+    def _can_list_selected_card_to_shelf(self) -> bool:
+        if not self.selected_shelf_key or not self.selected_card_id:
+            return False
+        layout = self.app.state.shop_layout
+        shelf = layout.shelf_stocks.get(self.selected_shelf_key)
+        if not shelf:
+            return False
+        if shelf.qty >= shelf.max_qty:
+            return False
+        # Don't sell below what's committed in the battle deck.
+        owned = self.app.state.collection.get(self.selected_card_id)
+        in_deck = self.app.state.deck.cards.get(self.selected_card_id, 0)
+        if owned <= in_deck:
+            return False
+        card = CARD_INDEX[self.selected_card_id]
+        product = f"single_{card.rarity}"
+        # Only allow listing on empty shelves, or shelves already listing the same rarity.
+        cards = getattr(shelf, "cards", [])
+        if shelf.qty > 0 and not cards:
+            return False
+        if shelf.qty > 0 and shelf.product != product:
+            return False
+        return True
+
+    def _list_selected_card_to_shelf(self) -> None:
+        if not self._can_list_selected_card_to_shelf():
+            return
+        layout = self.app.state.shop_layout
+        shelf = layout.shelf_stocks.get(self.selected_shelf_key)  # type: ignore[arg-type]
+        if not shelf:
+            return
+        card_id = self.selected_card_id
+        card = CARD_INDEX[card_id]
+        product = f"single_{card.rarity}"
+        if not hasattr(shelf, "cards"):
+            return
+        if not self.app.state.collection.remove(card_id, 1):
+            return
+        shelf.cards.append(card_id)
+        shelf.product = product
+        shelf.qty = len(shelf.cards)
+        self._refresh_shelves()
+        self._build_buttons()
+
     def _order_boosters(self) -> None:
-        cost = 20
+        qty = 12
+        cost = self._wholesale_cost("booster", qty)
         if self.app.state.money < cost:
             return
         self.app.state.money -= cost
-        order = InventoryOrder(5, 0, {}, cost, self.app.state.day + 1)
+        order = InventoryOrder(qty, 0, {}, cost, 0, self.app.state.time_seconds + 30.0)
         self.app.state.pending_orders.append(order)
         self._refresh_shelves()
+        self._build_buttons()
 
     def _order_decks(self) -> None:
-        cost = 30
+        qty = 4
+        cost = self._wholesale_cost("deck", qty)
         if self.app.state.money < cost:
             return
         self.app.state.money -= cost
-        order = InventoryOrder(0, 3, {}, cost, self.app.state.day + 1)
+        order = InventoryOrder(0, qty, {}, cost, 0, self.app.state.time_seconds + 30.0)
         self.app.state.pending_orders.append(order)
         self._refresh_shelves()
+        self._build_buttons()
 
     def _order_singles_current(self) -> None:
-        product = self.products[self.product_index]
-        if not product.startswith("single_"):
-            return
+        product = self._selected_single_product()
         rarity = product.replace("single_", "")
-        cost = 5 + RARITIES.index(rarity) * 2
+        qty = 10
+        cost = self._wholesale_cost(product, qty)
         if self.app.state.money < cost:
             return
         self.app.state.money -= cost
-        order = InventoryOrder(0, 0, {rarity: 5}, cost, self.app.state.day + 1)
+        order = InventoryOrder(0, 0, {rarity: qty}, cost, 0, self.app.state.time_seconds + 30.0)
         self.app.state.pending_orders.append(order)
         self._refresh_shelves()
+        self._build_buttons()
 
     def _init_assets(self) -> None:
         """Initialize shop assets."""
@@ -419,7 +626,6 @@ class ShopScene(Scene):
     def start_day(self) -> None:
         if self.day_running:
             return
-        self.app.apply_end_of_day_orders(self.app.state.day)
         self.day_running = True
         self.day_timer = 0.0
         self.customers.clear()
@@ -444,14 +650,30 @@ class ShopScene(Scene):
                 return
         for btn in self.tab_buttons:
             btn.handle_event(event)
+        if self.current_tab == "manage":
+            in_book = False
+            if self.manage_card_book_open:
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    in_book = self.book_panel.rect.collidepoint(event.pos)
+                    if in_book:
+                        self._handle_deck_click(event.pos)
+                if event.type == pygame.MOUSEWHEEL:
+                    in_book = self.book_panel.rect.collidepoint(pygame.mouse.get_pos())
+                    if in_book:
+                        self._scroll_card_book(-event.y * 24)
+            if not in_book:
+                # If interacting with the shelf list, don't allow hidden/overlapping buttons to also fire.
+                if getattr(event, "pos", None) and self.shelf_list.rect.collidepoint(event.pos):
+                    self.shelf_list.handle_event(event)
+                    return
+                self.shelf_list.handle_event(event)
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    key = self._select_shelf_at_pos(event.pos)
+                    if key:
+                        self.selected_shelf_key = key
+                        self._build_buttons()
         for button in self.buttons:
             button.handle_event(event)
-        if self.current_tab == "manage":
-            self.shelf_list.handle_event(event)
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                key = self._select_shelf_at_pos(event.pos)
-                if key:
-                    self.selected_shelf_key = key
         if self.current_tab == "deck":
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 self._handle_deck_click(event.pos)
@@ -561,7 +783,20 @@ class ShopScene(Scene):
             price = getattr(prices, f"single_{rarity}")
         else:
             return
-        stock.qty -= 1
+        if product.startswith("single_") and getattr(stock, "cards", None):
+            if stock.cards:
+                sold = self.app.rng.choice(stock.cards)
+                stock.cards.remove(sold)
+                stock.qty = len(stock.cards)
+            else:
+                stock.qty -= 1
+        else:
+            stock.qty -= 1
+        if stock.qty <= 0:
+            stock.qty = 0
+            stock.product = "empty"
+            if hasattr(stock, "cards"):
+                stock.cards.clear()
         self.app.state.money += price
         self.app.state.last_summary.revenue += price
         self.app.state.last_summary.units_sold += 1
@@ -585,6 +820,8 @@ class ShopScene(Scene):
         if self.current_tab == "manage":
             self.stock_panel.draw(surface, self.theme)
             self.inventory_panel.draw(surface, self.theme)
+            if self.manage_card_book_open:
+                self.book_panel.draw(surface, self.theme)
         if self.current_tab == "deck":
             self.book_panel.draw(surface, self.theme)
             self.deck_panel.draw(surface, self.theme)
@@ -597,6 +834,8 @@ class ShopScene(Scene):
             self._draw_packs(surface)
         if self.current_tab == "manage":
             self._draw_manage(surface)
+            if self.manage_card_book_open:
+                self._draw_deck(surface)
         if self.current_tab == "deck":
             self._draw_deck(surface)
         if self.current_tab == "battle":
@@ -700,7 +939,8 @@ class ShopScene(Scene):
                 sprite = asset_mgr.get_card_sprite(card_id, (64, 64))
                 if sprite:
                     surface.blit(sprite, (rect.x + 28, rect.y + 15))
-                pygame.draw.rect(surface, getattr(self.theme.colors, f"card_{card.rarity}"), rect, 2)
+                rarity_color = getattr(self.theme.colors, f"card_{card.rarity}")
+                draw_glow_border(surface, rect, rarity_color, border_width=2, glow_radius=4, glow_alpha=80)
                 id_text = self.theme.font_small.render(card.card_id.upper(), True, self.theme.colors.muted)
                 surface.blit(id_text, (rect.x + 6, rect.y + 4))
                 name = self.theme.font_small.render(card.name[:12], True, self.theme.colors.text)
@@ -738,11 +978,12 @@ class ShopScene(Scene):
                 return True
             if self._start_drag_or_resize(self.shelf_list.rect, "list", pos):
                 return True
-        if self.current_tab == "deck":
+        if self.current_tab == "deck" or (self.current_tab == "manage" and self.manage_card_book_open):
             if self._start_drag_or_resize(self.book_panel.rect, "book", pos):
                 return True
-            if self._start_drag_or_resize(self.deck_panel.rect, "deck", pos):
-                return True
+            if self.current_tab == "deck":
+                if self._start_drag_or_resize(self.deck_panel.rect, "deck", pos):
+                    return True
         return False
 
     def _start_drag_or_resize(self, rect: pygame.Rect, target: str, pos: tuple[int, int]) -> bool:
@@ -843,6 +1084,16 @@ class ShopScene(Scene):
         selected = self.selected_shelf_key or "None"
         sel_text = self.theme.font_small.render(f"Selected shelf: {selected}", True, self.theme.colors.muted)
         surface.blit(sel_text, (self.stock_panel.rect.x + 20, self.stock_panel.rect.bottom + 26))
+        if self.selected_card_id:
+            c = CARD_INDEX[self.selected_card_id]
+            owned = self.app.state.collection.get(self.selected_card_id)
+            in_deck = self.app.state.deck.cards.get(self.selected_card_id, 0)
+            card_text = self.theme.font_small.render(
+                f"Selected card: {c.name} ({c.card_id}) | Owned {owned} | In deck {in_deck}",
+                True,
+                self.theme.colors.muted,
+            )
+            surface.blit(card_text, (self.stock_panel.rect.x + 20, self.stock_panel.rect.bottom + 44))
         inv = self.app.state.inventory
         pending = sum(o.boosters + o.decks + sum(o.singles.values()) for o in self.app.state.pending_orders)
         inv_lines = [
@@ -856,18 +1107,68 @@ class ShopScene(Scene):
             surface.blit(text, (self.inventory_panel.rect.x + 20, y))
             y += 18
 
+        # Selected shelf details
+        if self.selected_shelf_key:
+            stock = self.app.state.shop_layout.shelf_stocks.get(self.selected_shelf_key)
+            if stock:
+                y += 6
+                hdr = self.theme.font_small.render("Selected shelf contents", True, self.theme.colors.text)
+                surface.blit(hdr, (self.inventory_panel.rect.x + 20, y))
+                y += 18
+                prod_line = self.theme.font_small.render(
+                    f"{stock.product} x{stock.qty}/{stock.max_qty}",
+                    True,
+                    self.theme.colors.muted,
+                )
+                surface.blit(prod_line, (self.inventory_panel.rect.x + 20, y))
+                y += 18
+                if getattr(stock, "cards", None):
+                    if stock.cards:
+                        counts: dict[str, int] = {}
+                        for cid in stock.cards:
+                            counts[cid] = counts.get(cid, 0) + 1
+                        parts: list[str] = []
+                        for cid, qty in sorted(counts.items(), key=lambda kv: CARD_INDEX[kv[0]].name)[:4]:
+                            c = CARD_INDEX[cid]
+                            parts.append(f"{c.name}({cid})x{qty}")
+                        more = max(0, len(counts) - 4)
+                        if more:
+                            parts.append(f"+{more} more")
+                        cards_line = self.theme.font_small.render("Cards: " + ", ".join(parts), True, self.theme.colors.muted)
+                        surface.blit(cards_line, (self.inventory_panel.rect.x + 20, y))
+                        y += 18
+                    else:
+                        cards_line = self.theme.font_small.render("Cards: (none listed)", True, self.theme.colors.muted)
+                        surface.blit(cards_line, (self.inventory_panel.rect.x + 20, y))
+                        y += 18
+
+        # Pending order queue with ETA
+        if self.app.state.pending_orders:
+            y += 6
+            hdr = self.theme.font_small.render("Incoming (ETA)", True, self.theme.colors.text)
+            surface.blit(hdr, (self.inventory_panel.rect.x + 20, y))
+            y += 18
+            now = self.app.state.time_seconds
+            for order in sorted(self.app.state.pending_orders, key=lambda o: o.deliver_at):
+                eta = max(0, int(order.deliver_at - now))
+                parts: list[str] = []
+                if order.boosters:
+                    parts.append(f"{order.boosters} boosters")
+                if order.decks:
+                    parts.append(f"{order.decks} decks")
+                for r, amt in order.singles.items():
+                    if amt:
+                        parts.append(f"{amt} {r}")
+                label = ", ".join(parts) if parts else "order"
+                line = self.theme.font_small.render(f"{eta:>2}s - {label}", True, self.theme.colors.muted)
+                surface.blit(line, (self.inventory_panel.rect.x + 20, y))
+                y += 18
+
     def _draw_deck(self, surface: pygame.Surface) -> None:
         asset_mgr = get_asset_manager()
         # Card book
-        book_rect = self.book_panel.rect
-        padding = 12
         row_height = 88
-        content_rect = pygame.Rect(
-            book_rect.x + padding,
-            book_rect.y + 36,
-            book_rect.width - padding * 2,
-            book_rect.height - 48,
-        )
+        content_rect = self._card_book_content_rect()
         entries = self.app.state.collection.entries(None)
         total_height = len(entries) * row_height
         max_scroll = max(0, total_height - content_rect.height)
@@ -882,31 +1183,39 @@ class ShopScene(Scene):
                 pygame.draw.rect(surface, self.theme.colors.panel_alt, row_rect)
             if self.selected_card_id == entry.card_id:
                 pygame.draw.rect(surface, self.theme.colors.accent, row_rect, 2)
-            # Card art
+            # Card icon with rarity glow
+            icon_rect = pygame.Rect(row_rect.x + 6, row_rect.y + 6, 56, 56)
+            bg = asset_mgr.create_card_background(card.rarity, (icon_rect.width, icon_rect.height))
+            surface.blit(bg, icon_rect.topleft)
+            rarity_color = getattr(self.theme.colors, f"card_{card.rarity}")
+            draw_glow_border(surface, icon_rect, rarity_color, border_width=2, glow_radius=3, glow_alpha=70)
             art = asset_mgr.get_card_sprite(entry.card_id, (48, 48))
             if art:
-                surface.blit(art, (row_rect.x + 6, row_rect.y + 6))
+                surface.blit(art, (icon_rect.x + 4, icon_rect.y + 4))
             # Text info
             name = self.theme.font_small.render(f"{card.name} ({card.card_id})", True, self.theme.colors.text)
-            surface.blit(name, (row_rect.x + 62, row_rect.y + 6))
+            surface.blit(name, (row_rect.x + 68, row_rect.y + 6))
             desc = (card.description[:60] + "...") if len(card.description) > 60 else card.description
             desc_text = self.theme.font_small.render(desc, True, self.theme.colors.muted)
-            surface.blit(desc_text, (row_rect.x + 62, row_rect.y + 24))
+            surface.blit(desc_text, (row_rect.x + 68, row_rect.y + 24))
             stats = self.theme.font_small.render(
                 f"{card.rarity.title()} | Cost {card.cost} | {card.attack}/{card.health}",
                 True,
                 self.theme.colors.text,
             )
-            surface.blit(stats, (row_rect.x + 62, row_rect.y + 42))
+            surface.blit(stats, (row_rect.x + 68, row_rect.y + 42))
             value = self._card_value(card.rarity)
             qty_text = self.theme.font_small.render(
                 f"Qty {entry.qty} | Value ${value}",
                 True,
                 self.theme.colors.muted,
             )
-            surface.blit(qty_text, (row_rect.x + 62, row_rect.y + 60))
+            surface.blit(qty_text, (row_rect.x + 68, row_rect.y + 60))
             y += row_height
         surface.set_clip(None)
+
+        if self.current_tab != "deck":
+            return
 
         # Deck list
         deck_rect = self.deck_panel.rect
@@ -922,13 +1231,7 @@ class ShopScene(Scene):
             y += 18
 
     def _handle_deck_click(self, pos: tuple[int, int]) -> None:
-        book_rect = self.book_panel.rect
-        content_rect = pygame.Rect(
-            book_rect.x + 12,
-            book_rect.y + 36,
-            book_rect.width - 24,
-            book_rect.height - 48,
-        )
+        content_rect = self._card_book_content_rect()
         if content_rect.collidepoint(pos):
             entries = self.app.state.collection.entries(None)
             row_height = 88
@@ -937,12 +1240,12 @@ class ShopScene(Scene):
                 row_rect = pygame.Rect(content_rect.x, y, content_rect.width, row_height - 8)
                 if row_rect.collidepoint(pos):
                     self.selected_card_id = entry.card_id
+                    self._build_buttons()
                     return
                 y += row_height
 
     def _scroll_card_book(self, delta: int) -> None:
-        book_rect = self.book_panel.rect
-        content_height = book_rect.height - 48
+        content_height = self._card_book_content_rect().height
         total_height = len(self.app.state.collection.entries(None)) * 88
         max_scroll = max(0, total_height - content_height)
         self.card_book_scroll = max(0, min(self.card_book_scroll + delta, max_scroll))

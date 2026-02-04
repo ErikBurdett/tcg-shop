@@ -19,13 +19,14 @@ SEED = 1337
 
 @dataclass
 class Prices:
-    booster: int = 7
-    deck: int = 15
+    # "Retail-ish" defaults inspired by real TCG shop pricing (MTG-like).
+    booster: int = 6
+    deck: int = 25
     single_common: int = 1
     single_uncommon: int = 2
-    single_rare: int = 4
-    single_epic: int = 7
-    single_legendary: int = 12
+    single_rare: int = 8
+    single_epic: int = 18
+    single_legendary: int = 40
 
 
 DEFAULT_PRICES = Prices()

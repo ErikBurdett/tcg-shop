@@ -52,14 +52,24 @@ class ManageScene(Scene):
             )
         rx = self.reorder_panel.rect.x + 20
         ry = self.reorder_panel.rect.y + 50
-        self.buttons.append(Button(pygame.Rect(rx, ry, 280, 32), "Order 5 Boosters ($20)", self._order_boosters))
-        self.buttons.append(Button(pygame.Rect(rx, ry + 40, 280, 32), "Order 3 Decks ($30)", self._order_decks))
+        booster_qty = 12
+        deck_qty = 4
+        booster_cost = self._wholesale_cost("booster", booster_qty)
+        deck_cost = self._wholesale_cost("deck", deck_qty)
+        self.buttons.append(
+            Button(pygame.Rect(rx, ry, 280, 32), f"Order {booster_qty} Boosters (${booster_cost})", self._order_boosters)
+        )
+        self.buttons.append(
+            Button(pygame.Rect(rx, ry + 40, 280, 32), f"Order {deck_qty} Decks (${deck_cost})", self._order_decks)
+        )
         for idx, rarity in enumerate(RARITIES):
+            singles_qty = 10
+            singles_cost = self._wholesale_cost(f"single_{rarity}", singles_qty)
             self.buttons.append(
                 Button(
                     pygame.Rect(rx, ry + 88 + idx * 34, 280, 30),
-                    f"Order 5 {rarity.title()} Singles (${5 + idx * 2})",
-                    lambda r=rarity, c=5 + idx * 2: self._order_singles(r, c),
+                    f"Order {singles_qty} {rarity.title()} Singles (${singles_cost})",
+                    lambda r=rarity: self._order_singles(r),
                 )
             )
         sx = self.shelf_panel.rect.x + 520
@@ -79,25 +89,41 @@ class ManageScene(Scene):
         current = max(1, current + delta)
         setattr(self.app.state.prices, attr, current)
 
+    def _wholesale_cost(self, product: str, qty: int) -> int:
+        prices = self.app.state.prices
+        if product == "booster":
+            retail = prices.booster
+        elif product == "deck":
+            retail = prices.deck
+        elif product.startswith("single_"):
+            retail = getattr(prices, product, prices.single_common)
+        else:
+            retail = 1
+        return max(1, int(round(retail * 0.6 * qty)))
+
     def _order_boosters(self) -> None:
-        cost = 20
+        qty = 12
+        cost = self._wholesale_cost("booster", qty)
         if self.app.state.money < cost:
             return
         self.app.state.money -= cost
-        self.app.state.pending_orders.append(InventoryOrder(5, 0, {}, cost, self.app.state.day + 1))
+        self.app.state.pending_orders.append(InventoryOrder(qty, 0, {}, cost, 0, self.app.state.time_seconds + 30.0))
 
     def _order_decks(self) -> None:
-        cost = 30
+        qty = 4
+        cost = self._wholesale_cost("deck", qty)
         if self.app.state.money < cost:
             return
         self.app.state.money -= cost
-        self.app.state.pending_orders.append(InventoryOrder(0, 3, {}, cost, self.app.state.day + 1))
+        self.app.state.pending_orders.append(InventoryOrder(0, qty, {}, cost, 0, self.app.state.time_seconds + 30.0))
 
-    def _order_singles(self, rarity: str, cost: int) -> None:
+    def _order_singles(self, rarity: str) -> None:
+        qty = 10
+        cost = self._wholesale_cost(f"single_{rarity}", qty)
         if self.app.state.money < cost:
             return
         self.app.state.money -= cost
-        self.app.state.pending_orders.append(InventoryOrder(0, 0, {rarity: 5}, cost, self.app.state.day + 1))
+        self.app.state.pending_orders.append(InventoryOrder(0, 0, {rarity: qty}, cost, 0, self.app.state.time_seconds + 30.0))
 
     def _refresh_shelves(self) -> None:
         layout = self.app.state.shop_layout

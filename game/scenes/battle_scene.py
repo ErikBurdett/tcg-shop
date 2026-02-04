@@ -7,6 +7,7 @@ from game.cards.battle import BattleState
 from game.cards.card_defs import CARD_INDEX
 from game.ui.widgets import Button, Panel, Tooltip
 from game.assets import get_asset_manager
+from game.ui.effects import draw_glow_border
 
 
 class BattleScene(Scene):
@@ -133,7 +134,7 @@ class BattleScene(Scene):
             
             # Draw border with rarity color
             rarity_color = self._rarity_border_color(card.rarity)
-            pygame.draw.rect(surface, rarity_color, rect, 2)
+            draw_glow_border(surface, rect, rarity_color, border_width=2, glow_radius=3, glow_alpha=70)
             # Draw id, name, description, stats
             id_text = self.theme.font_small.render(card.card_id.upper(), True, self.theme.colors.muted)
             surface.blit(id_text, (rect.x + 4, rect.y + 2))
@@ -170,7 +171,7 @@ class BattleScene(Scene):
                 
                 # Draw border with rarity color
                 rarity_color = self._rarity_border_color(card.rarity)
-                pygame.draw.rect(surface, rarity_color, rect, 2)
+                draw_glow_border(surface, rect, rarity_color, border_width=2, glow_radius=3, glow_alpha=70)
                 # Draw id, name, description, stats
                 id_text = self.theme.font_small.render(card.card_id.upper(), True, self.theme.colors.muted)
                 surface.blit(id_text, (rect.x + 4, rect.y + 2))

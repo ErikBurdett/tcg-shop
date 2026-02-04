@@ -38,6 +38,7 @@ class DaySummary:
 class GameState:
     money: int
     day: int
+    time_seconds: float
     prices: Prices
     inventory: Inventory
     collection: CardCollection
@@ -50,6 +51,7 @@ class GameState:
         return {
             "money": self.money,
             "day": self.day,
+            "time_seconds": self.time_seconds,
             "prices": self.prices.__dict__,
             "inventory": self.inventory.to_dict(),
             "collection": self.collection.to_dict(),
@@ -64,12 +66,13 @@ class GameState:
         return cls(
             money=data["money"],
             day=data["day"],
+            time_seconds=float(data.get("time_seconds", 0.0)),
             prices=Prices(**data["prices"]),
             inventory=Inventory.from_dict(data["inventory"]),
             collection=CardCollection.from_dict(data["collection"]),
             deck=Deck.from_dict(data["deck"]),
             shop_layout=ShopLayout.from_dict(data["shop_layout"]),
-            pending_orders=[InventoryOrder.from_dict(d) for d in data["pending_orders"]],
+            pending_orders=[InventoryOrder.from_dict(d) for d in data.get("pending_orders", [])],
             last_summary=DaySummary(**data["last_summary"]),
         )
 
@@ -110,6 +113,7 @@ class GameApp:
         return GameState(
             money=START_MONEY,
             day=START_DAY,
+            time_seconds=0.0,
             prices=Prices(),
             inventory=inventory,
             collection=collection,
@@ -148,10 +152,14 @@ class GameApp:
     def save_game(self) -> None:
         self.save.save(self.state.to_dict())
 
-    def apply_end_of_day_orders(self, current_day: int) -> None:
+    def process_pending_orders(self) -> None:
+        """Deliver any orders whose timer has elapsed."""
+        now = self.state.time_seconds
         remaining: list[InventoryOrder] = []
         for order in self.state.pending_orders:
-            if order.arrival_day <= current_day:
+            # Back-compat: if deliver_at is missing/0, deliver immediately.
+            deliver_at = order.deliver_at or 0.0
+            if deliver_at <= now:
                 self.state.inventory.apply_order(order)
             else:
                 remaining.append(order)
@@ -161,6 +169,8 @@ class GameApp:
         while self.running:
             dt = self.clock.tick(FPS) / 1000.0
             self._handle_events()
+            self.state.time_seconds += dt
+            self.process_pending_orders()
             self.scenes[self.current_scene_key].update(dt)
             self._draw()
 
