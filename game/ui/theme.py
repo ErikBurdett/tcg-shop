@@ -30,3 +30,4 @@ class Theme:
         self.font_small = pygame.font.SysFont("arial", 16)
         self.font = pygame.font.SysFont("arial", 20)
         self.font_large = pygame.font.SysFont("arial", 28)
+        self.font_title = pygame.font.SysFont("arial", 48, bold=True)

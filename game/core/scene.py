@@ -30,6 +30,8 @@ class Scene:
     def __init__(self, app: "GameApp") -> None:
         self.app = app
         self.theme = app.theme
+        # Scenes can disable the legacy top navigation bar (e.g., unified `ShopScene`).
+        self.show_top_bar = True
         self.top_buttons: list[Button] = []
         self.day_buttons: list[Button] = []
         self._last_screen_size = self.app.screen.get_size()
@@ -79,6 +81,8 @@ class Scene:
 
     def _build_top_bar(self) -> None:
         self.top_buttons.clear()
+        if not self.show_top_bar:
+            return
         padding = 8
         width = 110
         height = 34
@@ -103,8 +107,9 @@ class Scene:
         return handler
 
     def handle_event(self, event: pygame.event.Event) -> None:
-        for button in self.top_buttons:
-            button.handle_event(event)
+        if self.show_top_bar:
+            for button in self.top_buttons:
+                button.handle_event(event)
         for button in self.day_buttons:
             button.handle_event(event)
 
@@ -112,17 +117,20 @@ class Scene:
         _ = dt
         if self.app.screen.get_size() != self._last_screen_size:
             self._last_screen_size = self.app.screen.get_size()
-            self._build_top_bar()
+            if self.show_top_bar:
+                self._build_top_bar()
             self._build_day_buttons()
-        for button in self.top_buttons:
-            button.update(dt)
+        if self.show_top_bar:
+            for button in self.top_buttons:
+                button.update(dt)
         for button in self.day_buttons:
             button.update(dt)
         self._sync_day_buttons()
 
     def draw(self, surface: pygame.Surface) -> None:
-        for button in self.top_buttons:
-            button.draw(surface, self.theme)
+        if self.show_top_bar:
+            for button in self.top_buttons:
+                button.draw(surface, self.theme)
         for button in self.day_buttons:
             button.draw(surface, self.theme)
 

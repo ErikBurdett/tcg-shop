@@ -14,6 +14,7 @@ class CardEntry:
 class CardCollection:
     def __init__(self) -> None:
         self.cards: dict[str, int] = {}
+        self.revision: int = 0
 
     def add(self, card_id: str, amount: int = 1) -> None:
         self.cards[card_id] = self.cards.get(card_id, 0) + amount

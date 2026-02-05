@@ -86,6 +86,7 @@ class GameApp:
         self.input_map = InputMap()
         self.events = EventBus()
         self.save = SaveManager()
+        self.active_slot = 1
         self.theme = Theme()
         self.rng = random.Random(SEED)
         self.debug_overlay = False
@@ -96,7 +97,7 @@ class GameApp:
         self.running = True
         self.state = self._new_game_state()
         self.scenes: dict[str, Any] = {}
-        self.current_scene_key = "shop"
+        self.current_scene_key = "menu"
         self.battle_reward_pending = False
         # Initialize asset manager for card sprites
         get_asset_manager().init()
@@ -143,14 +144,32 @@ class GameApp:
         self.scenes[self.current_scene_key].on_enter()
 
     def load_game(self) -> bool:
-        data = self.save.load()
+        data = self.save.load(self.active_slot)
         if not data:
             return False
         self.state = GameState.from_dict(data)
         return True
 
+    def load_game_slot(self, slot_id: int) -> bool:
+        self.active_slot = max(1, slot_id)
+        return self.load_game()
+
     def save_game(self) -> None:
-        self.save.save(self.state.to_dict())
+        self.save.save(self.active_slot, self.state.to_dict())
+
+    def start_new_game(self, *, save: bool = True) -> None:
+        """Reset to a fresh game state and return to the shop."""
+        self.state = self._new_game_state()
+        if save:
+            self.save_game()
+        # Rebuild scenes to reset per-scene UI state cleanly.
+        self._build_scenes()
+        self.current_scene_key = "shop"
+        self.scenes[self.current_scene_key].on_enter()
+
+    def start_new_game_slot(self, slot_id: int, *, save: bool = True) -> None:
+        self.active_slot = max(1, slot_id)
+        self.start_new_game(save=save)
 
     def process_pending_orders(self) -> None:
         """Deliver any orders whose timer has elapsed."""

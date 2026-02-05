@@ -14,6 +14,7 @@ from game.cards.pack import open_booster
 from game.assets import get_asset_manager
 from game.assets.shop import get_shop_asset_manager
 from game.ui.effects import draw_glow_border
+from game.ui.layout import anchor_rect
 
 MINI_GRID = (14, 8)
 MINI_TILE = 42
@@ -32,7 +33,8 @@ class Customer:
 class ShopScene(Scene):
     def __init__(self, app: "GameApp") -> None:
         super().__init__(app)
-        # Hide base scene tabs; use custom unified tabs instead.
+        # Hide legacy scene nav; use custom unified tabs instead.
+        self.show_top_bar = False
         self.top_buttons.clear()
         self.day_running = False
         self.day_timer = 0.0
@@ -71,6 +73,10 @@ class ShopScene(Scene):
         self.selected_card_id: str | None = None
         # Manage "List Selected Card" menu state (card book overlay)
         self.manage_card_book_open = False
+        # Unified menu modal
+        self.menu_open = False
+        self.menu_panel = Panel(anchor_rect(self.app.screen, (420, 260), "center"), "Menu")
+        self.menu_buttons: list[Button] = []
         self.market_rarity_index = 0
         self.buttons: list[Button] = []
         self._floor_surface: pygame.Surface | None = None
@@ -140,6 +146,8 @@ class ShopScene(Scene):
         self.book_panel = Panel(book_rect, "Card Book")
         self.deck_panel = Panel(deck_rect, "Deck")
         self.shelf_list = ScrollList(list_rect, self.shelf_list.items)
+        # Center the unified menu modal on resize.
+        self.menu_panel = Panel(anchor_rect(self.app.screen, (420, 260), "center"), "Menu")
         self._last_screen_size = (width, height)
         self._layout_initialized = True
 
@@ -172,6 +180,105 @@ class ShopScene(Scene):
         bottom_pad = 12
         height = max(80, book_rect.bottom - bottom_pad - top)
         return pygame.Rect(book_rect.x + padding, top, book_rect.width - padding * 2, height)
+
+    def _relayout_buttons_only(self) -> None:
+        """Fast path for dragging/resizing panels: update button rects without recreating Button objects."""
+        bw = self.order_panel.rect.width - 40
+
+        def set_rect_by_text(text: str, rect: pygame.Rect) -> None:
+            for b in self.buttons:
+                if b.text == text:
+                    b.rect = rect
+                    return
+
+        if self.current_tab == "shop":
+            x = self.order_panel.rect.x + 20
+            y = self.order_panel.rect.y + 40
+            set_rect_by_text("Shelf", pygame.Rect(x, y, bw, 30))
+            set_rect_by_text("Counter", pygame.Rect(x, y + 36, bw, 30))
+            set_rect_by_text("Poster", pygame.Rect(x, y + 72, bw, 30))
+            return
+
+        if self.current_tab == "packs":
+            x = self.order_panel.rect.x + 20
+            y = self.order_panel.rect.y + 40
+            set_rect_by_text("Open Pack", pygame.Rect(x, y, bw, 34))
+            set_rect_by_text("Reveal All", pygame.Rect(x, y + 46, bw, 30))
+            return
+
+        if self.current_tab == "battle":
+            x = self.order_panel.rect.x + 20
+            y = self.order_panel.rect.y + 40
+            set_rect_by_text("Start Battle", pygame.Rect(x, y, bw, 34))
+            return
+
+        if self.current_tab == "deck":
+            x = self.order_panel.rect.x + 20
+            y = self.order_panel.rect.y + 40
+            half = (bw - 10) // 2
+            set_rect_by_text("Add to Deck", pygame.Rect(x, y, bw, 32))
+            set_rect_by_text("Remove from Deck", pygame.Rect(x, y + 38, bw, 32))
+            set_rect_by_text("Auto Fill", pygame.Rect(x, y + 76, bw, 32))
+            set_rect_by_text("Clear Deck", pygame.Rect(x, y + 114, bw, 32))
+            set_rect_by_text("Rarity -", pygame.Rect(x, y + 160, half, 28))
+            set_rect_by_text("Rarity +", pygame.Rect(x + half + 10, y + 160, half, 28))
+            for b in self.buttons:
+                if b.text.startswith("Buy Random "):
+                    b.rect = pygame.Rect(x, y + 194, bw, 30)
+                    break
+            return
+
+        if self.current_tab == "manage":
+            order_x = self.order_panel.rect.x + 20
+            order_y = self.order_panel.rect.y + 40
+            stock_x = self.stock_panel.rect.x + 20
+            stock_y = self.stock_panel.rect.y + 40
+            stock_w = self.stock_panel.rect.width - 40
+            half = (stock_w - 10) // 2
+
+            for b in self.buttons:
+                if b.text.startswith("Order ") and "Boosters" in b.text:
+                    b.rect = pygame.Rect(order_x, order_y, bw, 32)
+                elif b.text.startswith("Order ") and "Decks" in b.text:
+                    b.rect = pygame.Rect(order_x, order_y + 38, bw, 32)
+                elif b.text.startswith("Order ") and "Singles" in b.text:
+                    b.rect = pygame.Rect(order_x, order_y + 76, bw, 32)
+
+            set_rect_by_text("Booster", pygame.Rect(stock_x, stock_y, half, 28))
+            set_rect_by_text("Deck", pygame.Rect(stock_x + half + 10, stock_y, half, 28))
+            set_rect_by_text("Common", pygame.Rect(stock_x, stock_y + 32, half, 28))
+            set_rect_by_text("Uncommon", pygame.Rect(stock_x + half + 10, stock_y + 32, half, 28))
+            set_rect_by_text("Rare", pygame.Rect(stock_x, stock_y + 64, half, 28))
+            set_rect_by_text("Epic", pygame.Rect(stock_x + half + 10, stock_y + 64, half, 28))
+            set_rect_by_text("Legendary", pygame.Rect(stock_x, stock_y + 96, half, 28))
+
+            set_rect_by_text("Price -1", pygame.Rect(stock_x, stock_y + 132, half, 28))
+            set_rect_by_text("Price +1", pygame.Rect(stock_x + half + 10, stock_y + 132, half, 28))
+            set_rect_by_text("Price -5", pygame.Rect(stock_x, stock_y + 164, half, 28))
+            set_rect_by_text("Price +5", pygame.Rect(stock_x + half + 10, stock_y + 164, half, 28))
+            set_rect_by_text("Stock 1", pygame.Rect(stock_x, stock_y + 200, stock_w, 28))
+            set_rect_by_text("Stock 5", pygame.Rect(stock_x, stock_y + 232, stock_w, 28))
+            set_rect_by_text("Fill Shelf", pygame.Rect(stock_x, stock_y + 264, stock_w, 28))
+            set_rect_by_text("List Selected Card", pygame.Rect(stock_x, stock_y + 296, stock_w, 28))
+            set_rect_by_text("Prev Shelf", pygame.Rect(stock_x, stock_y + 328, stock_w, 28))
+            set_rect_by_text("Next Shelf", pygame.Rect(stock_x, stock_y + 360, stock_w, 28))
+            set_rect_by_text("Clear Selection", pygame.Rect(stock_x, stock_y + 392, stock_w, 28))
+
+            if self.manage_card_book_open:
+                book = self.book_panel.rect
+                bx = book.x + 12
+                by = book.y + 32
+                bh = 28
+                gap = 8
+                set_rect_by_text("Close", pygame.Rect(book.right - 12 - 90, by, 90, bh))
+                set_rect_by_text("List 1 to Shelf", pygame.Rect(bx, by, 200, bh))
+                set_rect_by_text("Rarity -", pygame.Rect(bx, by + bh + gap, 90, bh))
+                set_rect_by_text("Rarity +", pygame.Rect(bx + 90 + gap, by + bh + gap, 90, bh))
+                for b in self.buttons:
+                    if b.text.startswith("Buy Random "):
+                        b.rect = pygame.Rect(bx + (90 + gap) * 2, by + bh + gap, book.width - 24 - (90 + gap) * 2, bh)
+                        break
+            return
 
     def _build_buttons(self) -> None:
         self._build_tab_btns()
@@ -302,6 +409,22 @@ class ShopScene(Scene):
             btn.enabled = self.app.state.deck.is_valid()
             self.buttons = [btn]
 
+        # Unified "Menu" modal buttons (built last so they can be drawn/handled on top)
+        self.menu_buttons = []
+        if self.menu_open:
+            rect = self.menu_panel.rect
+            x = rect.x + 40
+            y = rect.y + 60
+            w = rect.width - 80
+            h = 40
+            gap = 12
+            self.menu_buttons = [
+                Button(pygame.Rect(x, y, w, h), "Save Game", self._menu_save),
+                Button(pygame.Rect(x, y + (h + gap), w, h), "New Game", self._menu_new_game),
+                Button(pygame.Rect(x, y + 2 * (h + gap), w, h), "Exit to Menu", self._menu_exit_to_menu),
+                Button(pygame.Rect(x, y + 3 * (h + gap), w, h), "Close", self._menu_close),
+            ]
+
     def _build_tab_btns(self) -> None:
         self.tab_buttons = []
         width, _ = self.app.screen.get_size()
@@ -311,14 +434,23 @@ class ShopScene(Scene):
         btn_h = 32
         gap = 12
         # Wrap tabs to multiple rows if needed.
+        tab_ids = list(self.tabs) + ["menu"]
         per_row = max(1, (width - x0 * 2) // (btn_w + gap))
-        for i, tab in enumerate(self.tabs):
+        for i, tab in enumerate(tab_ids):
             row = i // per_row
             col = i % per_row
             rect = pygame.Rect(x0 + col * (btn_w + gap), y0 + row * (btn_h + 8), btn_w, btn_h)
-            self.tab_buttons.append(Button(rect, tab.title(), lambda t=tab: self._switch_tab(t)))
+            label = "Menu" if tab == "menu" else tab.title()
+            self.tab_buttons.append(Button(rect, label, lambda t=tab: self._switch_tab(t)))
 
     def _switch_tab(self, tab: str) -> None:
+        if tab == "menu":
+            self.menu_open = not self.menu_open
+            # Close other overlays when the menu is opened.
+            if self.menu_open:
+                self.manage_card_book_open = False
+            self._build_buttons()
+            return
         if tab != "manage":
             self.manage_card_book_open = False
         self.current_tab = tab
@@ -341,6 +473,24 @@ class ShopScene(Scene):
     def _start_battle(self) -> None:
         if self.app.state.deck.is_valid():
             self.app.switch_scene("battle")
+
+    def _menu_save(self) -> None:
+        self.app.save_game()
+        self.menu_open = False
+        self._build_buttons()
+
+    def _menu_new_game(self) -> None:
+        # This recreates scenes; no further UI work needed here.
+        self.app.start_new_game()
+
+    def _menu_exit_to_menu(self) -> None:
+        self.menu_open = False
+        self._build_buttons()
+        self.app.switch_scene("menu")
+
+    def _menu_close(self) -> None:
+        self.menu_open = False
+        self._build_buttons()
 
     def _set_product(self, product: str) -> None:
         if product in self.products:
@@ -642,6 +792,20 @@ class ShopScene(Scene):
 
     def handle_event(self, event: pygame.event.Event) -> None:
         super().handle_event(event)
+        # Menu modal captures input (except the unified top tabs).
+        if self.menu_open:
+            for btn in self.tab_buttons:
+                btn.handle_event(event)
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                self._menu_close()
+                return
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if not self.menu_panel.rect.collidepoint(event.pos):
+                    self._menu_close()
+                    return
+            for button in self.menu_buttons:
+                button.handle_event(event)
+            return
         if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             self._drag_target = None
             self._resize_target = None
@@ -840,6 +1004,13 @@ class ShopScene(Scene):
             self._draw_deck(surface)
         if self.current_tab == "battle":
             self._draw_battle_info(surface)
+        if self.menu_open:
+            overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 140))
+            surface.blit(overlay, (0, 0))
+            self.menu_panel.draw(surface, self.theme)
+            for button in self.menu_buttons:
+                button.draw(surface, self.theme)
 
     def _draw_grid(self, surface: pygame.Surface) -> None:
         y_off = self._shop_y_offset
@@ -1021,17 +1192,18 @@ class ShopScene(Scene):
             rect.y = int(mouse.y - self._drag_offset.y)
             rect = self._clamp_rect(rect, width, height)
             if self._drag_target == "order":
-                self.order_panel = Panel(rect, "Ordering")
-                self._build_buttons()
+                self.order_panel.rect = rect
+                self._relayout_buttons_only()
             elif self._drag_target == "stock":
-                self.stock_panel = Panel(rect, "Stocking")
-                self._build_buttons()
+                self.stock_panel.rect = rect
+                self._relayout_buttons_only()
             elif self._drag_target == "inventory":
-                self.inventory_panel = Panel(rect, "Inventory")
+                self.inventory_panel.rect = rect
             elif self._drag_target == "book":
-                self.book_panel = Panel(rect, "Card Book")
+                self.book_panel.rect = rect
+                self._relayout_buttons_only()
             elif self._drag_target == "deck":
-                self.deck_panel = Panel(rect, "Deck")
+                self.deck_panel.rect = rect
             else:
                 self.shelf_list.rect = rect
         if self._resize_target:
@@ -1052,17 +1224,18 @@ class ShopScene(Scene):
             rect.height = int(self._resize_origin.y + delta.y)
             rect = self._clamp_rect(rect, width, height)
             if self._resize_target == "order":
-                self.order_panel = Panel(rect, "Ordering")
-                self._build_buttons()
+                self.order_panel.rect = rect
+                self._relayout_buttons_only()
             elif self._resize_target == "stock":
-                self.stock_panel = Panel(rect, "Stocking")
-                self._build_buttons()
+                self.stock_panel.rect = rect
+                self._relayout_buttons_only()
             elif self._resize_target == "inventory":
-                self.inventory_panel = Panel(rect, "Inventory")
+                self.inventory_panel.rect = rect
             elif self._resize_target == "book":
-                self.book_panel = Panel(rect, "Card Book")
+                self.book_panel.rect = rect
+                self._relayout_buttons_only()
             elif self._resize_target == "deck":
-                self.deck_panel = Panel(rect, "Deck")
+                self.deck_panel.rect = rect
             else:
                 self.shelf_list.rect = rect
 
@@ -1175,8 +1348,11 @@ class ShopScene(Scene):
         self.card_book_scroll = max(0, min(self.card_book_scroll, max_scroll))
 
         surface.set_clip(content_rect)
-        y = content_rect.y - self.card_book_scroll
-        for entry in entries:
+        start_idx = max(0, (self.card_book_scroll // row_height) - 1)
+        visible = (content_rect.height // row_height) + 3
+        end_idx = min(len(entries), start_idx + visible)
+        y = content_rect.y - self.card_book_scroll + start_idx * row_height
+        for entry in entries[start_idx:end_idx]:
             card = CARD_INDEX[entry.card_id]
             row_rect = pygame.Rect(content_rect.x, y, content_rect.width, row_height - 8)
             if row_rect.collidepoint(pygame.mouse.get_pos()):
@@ -1233,16 +1409,13 @@ class ShopScene(Scene):
     def _handle_deck_click(self, pos: tuple[int, int]) -> None:
         content_rect = self._card_book_content_rect()
         if content_rect.collidepoint(pos):
-            entries = self.app.state.collection.entries(None)
             row_height = 88
-            y = content_rect.y - self.card_book_scroll
-            for entry in entries:
-                row_rect = pygame.Rect(content_rect.x, y, content_rect.width, row_height - 8)
-                if row_rect.collidepoint(pos):
-                    self.selected_card_id = entry.card_id
-                    self._build_buttons()
-                    return
-                y += row_height
+            idx = int((pos[1] - content_rect.y + self.card_book_scroll) // row_height)
+            entries = self.app.state.collection.entries(None)
+            if 0 <= idx < len(entries):
+                self.selected_card_id = entries[idx].card_id
+                self._build_buttons()
+                return
 
     def _scroll_card_book(self, delta: int) -> None:
         content_height = self._card_book_content_rect().height

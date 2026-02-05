@@ -11,7 +11,11 @@ def main() -> None:
     
     pygame.init()
     pygame.display.set_caption(WINDOW_TITLE)
-    screen = pygame.display.set_mode(WINDOW_SIZE, pygame.RESIZABLE)
+    # Start at "max" window size (desktop resolution) by default.
+    # This keeps the window resizable while filling the available screen.
+    info = pygame.display.Info()
+    max_size = (info.current_w or WINDOW_SIZE[0], info.current_h or WINDOW_SIZE[1])
+    screen = pygame.display.set_mode(max_size, pygame.RESIZABLE)
     app = GameApp(screen)
     app.run()
     pygame.quit()

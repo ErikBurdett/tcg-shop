@@ -12,7 +12,14 @@ TILE_SIZE = 48
 SHOP_GRID = (20, 12)
 
 SAVE_DIR = ".tcg_shop"
+# Legacy single-save filename (pre-save-slots).
 SAVE_FILE = "savegame.json"
+SAVE_SLOTS = 3
+SAVE_SLOT_TEMPLATE = "save_slot_{slot}.json"
+SAVE_META_FILE = "slots.json"
+
+# Shown on the main menu. Update this to your repo URL.
+PROJECT_URL = "https://github.com/ErikBurdett/tcg-shop"
 
 SEED = 1337
 

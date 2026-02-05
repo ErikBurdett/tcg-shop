@@ -27,12 +27,13 @@ python main.py
 - Bottom-left: Start/Stop day controls (global)
 
 ## Gameplay Loop
-1. Run the shop day in the top-down scene.
-2. Manage inventory and pricing in Manage.
-3. Open boosters in Packs.
-4. Build a 20-card deck in Deck.
-5. Battle AI in Battle.
-6. Save/load via Menu.
+1. Start on the main menu and pick a save slot (Load or New Game).
+2. Run the shop day in the top-down scene.
+3. Manage inventory and pricing in Manage.
+4. Open boosters in Packs.
+5. Build a 20-card deck in Deck.
+6. Battle AI in Battle.
+7. Save via the unified Menu button.
 
 ## What’s New (recent changes)
 - **Unified UI improvements**
@@ -93,6 +94,7 @@ python main.py
 - [x] Unified single-screen UI tabs
 - [x] Responsive UI (tab wrapping) + draggable panels
 - [x] Save/load system
+- [x] Three named save slots (menu-driven)
 - [x] Dev console commands
 
 ### Not Implemented / Incomplete
@@ -159,6 +161,7 @@ Open with ` and enter commands:
 - `graphics_overview.md`: rendering + asset pipeline reference
 - `UI.md`: UI architecture, best practices, and UI roadmap
 - `TCG_Sim_ OverView Roadmap.md`: higher-level feature roadmap
+- `saves.md`: save slot system details
 
 ## Tests
 Run sanity checks:

@@ -78,6 +78,7 @@ class CardAssetManager:
         self._dungeon_crawl: Optional[SpriteSheet] = None
         self._tile_cache: Dict[int, pygame.Surface] = {}
         self._sprite_cache: Dict[str, pygame.Surface] = {}
+        self._bg_cache: Dict[tuple[str, tuple[int, int]], pygame.Surface] = {}
         self._initialized = False
 
     def init(self) -> None:
@@ -167,6 +168,10 @@ class CardAssetManager:
 
     def create_card_background(self, rarity: str, size: Tuple[int, int]) -> pygame.Surface:
         """Create a dark fantasy background for the card based on rarity."""
+        key = (rarity, (int(size[0]), int(size[1])))
+        cached = self._bg_cache.get(key)
+        if cached is not None:
+            return cached
         surface = pygame.Surface(size, pygame.SRCALPHA)
         
         # Dark fantasy color schemes per rarity (top color, bottom color)
@@ -201,7 +206,7 @@ class CardAssetManager:
                     pygame.draw.rect(vignette, (0, 0, 0, alpha), (x, y, 2, 2))
         
         surface.blit(vignette, (0, 0))
-        
+        self._bg_cache[key] = surface
         return surface
 
 
