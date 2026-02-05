@@ -10,12 +10,17 @@ This project uses a lightweight, immediate-mode UI approach built directly on to
 
 Example draw order in the unified shop scene:
 
-```814:836:game/scenes/shop_scene.py
+```1059:1089:game/scenes/shop_scene.py
     def draw(self, surface: pygame.Surface) -> None:
         super().draw(surface)
+        self.shop_panel.draw(surface, self.theme)
+        clip = surface.get_clip()
+        surface.set_clip(self._shop_inner_rect())
         self._draw_grid(surface)
         self._draw_objects(surface)
         self._draw_customers(surface)
+        self._draw_status(surface)
+        surface.set_clip(clip)
         self.order_panel.draw(surface, self.theme)
         if self.current_tab == "manage":
             self.stock_panel.draw(surface, self.theme)
@@ -62,7 +67,7 @@ Each scene:
 The unified “single screen” experience is implemented in `game/scenes/shop_scene.py` by rendering different panels depending on `current_tab`.
 
 ### Global, always-available controls
-`Scene` renders a wrapped top bar and a bottom-left Start/Stop day control that proxies to the shop scene:
+`Scene` renders a wrapped top bar and a bottom-middle Start/Stop day control that proxies to the shop scene:
 
 ```30:127:game/core/scene.py
     def __init__(self, app: "GameApp") -> None:
@@ -89,17 +94,17 @@ The unified “single screen” experience is implemented in `game/scenes/shop_s
 ```87:151:game/scenes/shop_scene.py
     def _layout(self) -> None:
         width, height = self.app.screen.get_size()
-        self._shop_y_offset = self._top_bar_height + 24
-        panel_width = min(420, max(300, int(width * 0.26)))
-        panel_height = min(360, max(220, int(height * 0.3)))
-        # ... initial placement vs clamped placement ...
-
-    def _clamp_rect(self, rect: pygame.Rect, width: int, height: int) -> pygame.Rect:
-        rect.width = max(240, min(rect.width, width - 40))
-        rect.height = max(140, min(rect.height, height - self._top_bar_height - 40))
-        rect.x = max(8, min(rect.x, width - rect.width - 8))
-        rect.y = max(self._top_bar_height + 8, min(rect.y, height - rect.height - 8))
-        return rect
+        base_top = self._top_bar_height + 24
+        # ... compute other panel rects ...
+        if not self._layout_initialized:
+            # ... compute shop_rect to fill the center play area ...
+            shop_rect = pygame.Rect(shop_left, shop_top, shop_w, shop_h)
+        else:
+            shop_rect = self._clamp_rect(self.shop_panel.rect.copy(), width, height)
+        # ... recreate Panel instances ...
+        self.shop_panel = Panel(shop_rect, "Shop")
+        # Keep tile size + offsets in sync with the Shop window.
+        self._update_shop_viewport(rescale=True)
 ```
 
 ### Wrapped tabs (no overflow)

@@ -21,6 +21,13 @@ SAVE_META_FILE = "slots.json"
 # Shown on the main menu. Update this to your repo URL.
 PROJECT_URL = "https://github.com/ErikBurdett/tcg-shop"
 
+# Keep this short (it’s rendered in the main menu side panel).
+# Treat this like “last 2 commits” notes / release notes.
+RECENT_UPDATES: list[str] = [
+    "Shop view is now its own movable + resizable window.",
+    "Shop rendering/input is clipped to that window (no accidental placements).",
+]
+
 SEED = 1337
 
 

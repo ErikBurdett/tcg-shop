@@ -24,7 +24,7 @@ python main.py
 - F3: Toggle debug overlay
 - ` (backtick): Toggle dev console
 - SPACE: End turn (battle)
-- Bottom-left: Start/Stop day controls (global)
+- Bottom-middle: Start/Stop day controls (global)
 
 ## Gameplay Loop
 1. Start on the main menu and pick a save slot (Load or New Game).
@@ -38,8 +38,9 @@ python main.py
 ## What’s New (recent changes)
 - **Unified UI improvements**
   - **Tabs never overflow**: top nav wraps to multiple rows on small windows.
-  - **Global Start/Stop Day**: pinned bottom-left across screens via the base `Scene`.
+  - **Global Start/Stop Day**: pinned bottom-middle across screens via the base `Scene`.
   - **Draggable/resizable panels**: ordering/stocking/inventory/book/deck panels can be moved/resized.
+  - **Shop in a window**: the shop playfield is inside a **movable + resizable Shop panel** (with a clipped viewport).
 - **Order management**
   - Orders are **delivered ~30 seconds after purchase** (real-time), not “next day”.
   - Manage inventory shows an **Incoming (ETA)** queue.
@@ -58,7 +59,7 @@ python main.py
 ### Global Pixel Sizes
 - Window size: `1600x900` (resizable)
 - Base resolution: `1600x900`
-- Shop grid tile size: `48x48`
+- Shop grid tile size: **dynamic** (default `48x48`, scales with the Shop window; clamped to ~`24`–`84` px)
 
 ### Card Art Sizes
 - Card art target size: `64x64` in shop view
@@ -93,6 +94,7 @@ python main.py
 - [x] Battle flow with AI
 - [x] Unified single-screen UI tabs
 - [x] Responsive UI (tab wrapping) + draggable panels
+- [x] Shop scene is contained in a movable/resizable window (clipped viewport)
 - [x] Save/load system
 - [x] Three named save slots (menu-driven)
 - [x] Dev console commands

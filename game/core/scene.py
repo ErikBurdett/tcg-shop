@@ -63,10 +63,11 @@ class Scene:
         btn_w = 180
         btn_h = 34
         gap = 8
-        x = margin
-        y = h - margin - (btn_h * 2 + gap)
+        total_w = btn_w * 2 + gap
+        x = max(margin, (w - total_w) // 2)
+        y = h - margin - btn_h
         start = Button(pygame.Rect(x, y, btn_w, btn_h), "Start Day", self._global_start_day)
-        stop = Button(pygame.Rect(x, y + btn_h + gap, btn_w, btn_h), "Stop Day", self._global_stop_day)
+        stop = Button(pygame.Rect(x + btn_w + gap, y, btn_w, btn_h), "Stop Day", self._global_stop_day)
         self.day_buttons = [start, stop]
         self._sync_day_buttons()
 

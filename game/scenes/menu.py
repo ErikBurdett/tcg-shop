@@ -5,7 +5,7 @@ import pygame
 from game.core.scene import Scene
 from game.ui.widgets import Button, Panel
 from game.ui.layout import anchor_rect
-from game.config import PROJECT_URL
+from game.config import PROJECT_URL, RECENT_UPDATES
 from game.core.save import SaveSlotInfo
 
 
@@ -163,6 +163,24 @@ class MenuScene(Scene):
         # Side panel content
         sx = self.side_panel.rect.x + 18
         sy = self.side_panel.rect.y + 16
+
+        def wrap_lines(text: str, font: pygame.font.Font, max_width: int) -> list[str]:
+            """Simple word wrap for menu text."""
+            words = text.split()
+            if not words:
+                return [""]
+            lines: list[str] = []
+            cur = words[0]
+            for w in words[1:]:
+                trial = f"{cur} {w}"
+                if font.size(trial)[0] <= max_width:
+                    cur = trial
+                else:
+                    lines.append(cur)
+                    cur = w
+            lines.append(cur)
+            return lines
+
         welcome = [
             "Welcome!",
             "This game is in early development.",
@@ -179,6 +197,20 @@ class MenuScene(Scene):
             text = font.render(line, True, color)
             surface.blit(text, (sx, sy))
             sy += 24 if font == self.theme.font else 18
+
+        # Recent updates (commit-style notes)
+        sy += 10
+        hdr2 = self.theme.font_large.render("Recent updates", True, self.theme.colors.text)
+        surface.blit(hdr2, (sx, sy))
+        sy += 28
+
+        max_w = self.side_panel.rect.width - 36
+        for note in RECENT_UPDATES[:5]:
+            bullet = f"- {note}"
+            for wrapped in wrap_lines(bullet, self.theme.font_small, max_w):
+                t = self.theme.font_small.render(wrapped, True, self.theme.colors.muted)
+                surface.blit(t, (sx, sy))
+                sy += 18
 
         # Rename field
         if self.renaming:

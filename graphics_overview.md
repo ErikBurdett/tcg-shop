@@ -7,30 +7,19 @@ Rendering is immediate-mode: each frame clears the screen and draws layered surf
 
 ### Draw Order (Shop Scene)
 The shop scene draws the floor, objects, customers, and then UI elements. This ordering keeps gameplay visuals beneath the UI.
-```814:836:game/scenes/shop_scene.py
+```1059:1089:game/scenes/shop_scene.py
     def draw(self, surface: pygame.Surface) -> None:
         super().draw(surface)
+        self.shop_panel.draw(surface, self.theme)
+        clip = surface.get_clip()
+        surface.set_clip(self._shop_inner_rect())
         self._draw_grid(surface)
         self._draw_objects(surface)
         self._draw_customers(surface)
-        self.order_panel.draw(surface, self.theme)
-        if self.current_tab == "manage":
-            self.stock_panel.draw(surface, self.theme)
-            self.inventory_panel.draw(surface, self.theme)
-            if self.manage_card_book_open:
-                self.book_panel.draw(surface, self.theme)
-        if self.current_tab == "deck":
-            self.book_panel.draw(surface, self.theme)
-            self.deck_panel.draw(surface, self.theme)
-        for button in self.buttons:
-            button.draw(surface, self.theme)
-        for tb in self.tab_buttons:
-            tb.draw(surface, self.theme)
         self._draw_status(surface)
-        if self.current_tab == "packs":
-            self._draw_packs(surface)
-        if self.current_tab == "manage":
-            self._draw_manage(surface)
+        surface.set_clip(clip)
+        self.order_panel.draw(surface, self.theme)
+        # ... other panels/buttons based on current_tab ...
 ```
 
 ### Pack Reveal Rendering

@@ -50,8 +50,14 @@ class ShopScene(Scene):
         self.reveal_index = 0
         self._top_bar_height = 48
         self._panel_padding = 16
-        self._shop_y_offset = self._top_bar_height + 16
+        # UI and shop viewport offsets (shop area is centered within available space)
+        self._ui_top = self._top_bar_height + 16
+        self._shop_y_offset = self._ui_top
+        self._shop_x_offset = 0
+        self.tile_px = TILE_SIZE
+        self._floor_tile_px = TILE_SIZE
         self._last_screen_size = self.app.screen.get_size()
+        self.shop_panel = Panel(pygame.Rect(0, 0, 640, 520), "Shop")
         self.order_panel = Panel(pygame.Rect(0, 0, 280, 240), "Ordering")
         self.stock_panel = Panel(pygame.Rect(0, 0, 280, 280), "Stocking")
         self.inventory_panel = Panel(pygame.Rect(0, 0, 280, 240), "Inventory")
@@ -90,39 +96,78 @@ class ShopScene(Scene):
         self._build_buttons()
         self._init_assets()
 
+    def _shop_inner_rect(self) -> pygame.Rect:
+        # Keep consistent with drag header zone height (24) and panel border padding.
+        rect = self.shop_panel.rect
+        return pygame.Rect(rect.x + 6, rect.y + 28, max(1, rect.width - 12), max(1, rect.height - 34))
+
+    def _update_shop_viewport(self, *, rescale: bool) -> None:
+        """Update tile size and grid origin based on shop_panel size/position."""
+        inner = self._shop_inner_rect()
+        old_tile = self.tile_px
+        if rescale:
+            ideal = int(min(inner.width / SHOP_GRID[0], inner.height / SHOP_GRID[1]))
+            self.tile_px = max(24, min(ideal, 84))
+        grid_w = SHOP_GRID[0] * self.tile_px
+        grid_h = SHOP_GRID[1] * self.tile_px
+        self._shop_x_offset = inner.x + max(0, (inner.width - grid_w) // 2)
+        self._shop_y_offset = inner.y + max(0, (inner.height - grid_h) // 2)
+
+        if rescale and old_tile and self.tile_px != old_tile and self.customers:
+            scale = self.tile_px / old_tile
+            for c in self.customers:
+                c.pos *= scale
+                c.target *= scale
+
+        if rescale and self._floor_tile_px != self.tile_px:
+            shop_assets = get_shop_asset_manager()
+            shop_assets.init()
+            self._floor_surface = shop_assets.create_shop_floor_surface(SHOP_GRID, self.tile_px)
+            self._floor_tile_px = self.tile_px
+
     def _layout(self) -> None:
         width, height = self.app.screen.get_size()
-        self._shop_y_offset = self._top_bar_height + 24
-        panel_width = min(420, max(300, int(width * 0.26)))
+        base_top = self._top_bar_height + 24
+        self._ui_top = base_top
+        panel_width = min(520, max(360, int(width * 0.26)))
         panel_height = min(360, max(220, int(height * 0.3)))
         if not self._layout_initialized:
-            order_rect = pygame.Rect(
-                width - panel_width - self._panel_padding,
-                self._top_bar_height + self._panel_padding,
-                panel_width,
-                panel_height,
-            )
+            # Default arrangement (matches the intended "manage" layout screenshot):
+            # - Ordering: top-right
+            # - Stocking: bottom-right (tall enough for all controls)
+            # - Inventory: bottom-left
+            # - Shelf list: top-center-right (between shop and ordering)
+            top_y = self._top_bar_height + self._panel_padding
+            order_h = max(panel_height, 220)
+            order_rect = pygame.Rect(width - panel_width - self._panel_padding, top_y, panel_width, order_h)
+
+            stock_h = min(height - top_y - self._panel_padding, max(520, int(height * 0.48)))
             stock_rect = pygame.Rect(
-                order_rect.x,
-                order_rect.bottom + self._panel_padding,
+                width - panel_width - self._panel_padding,
+                height - stock_h - self._panel_padding,
                 panel_width,
-                panel_height + 40,
+                stock_h,
             )
-            inv_rect = pygame.Rect(
-                order_rect.x,
-                stock_rect.bottom + self._panel_padding,
-                panel_width,
-                panel_height,
-            )
-            list_rect = pygame.Rect(
-                stock_rect.x + 12,
-                stock_rect.y + 96,
-                stock_rect.width - 24,
-                max(140, stock_rect.height - 108),
-            )
+
+            inv_w = min(420, max(320, int(width * 0.26)))
+            inv_h = min(320, max(240, int(height * 0.28)))
+            inv_rect = pygame.Rect(self._panel_padding, height - inv_h - self._panel_padding, inv_w, inv_h)
+
+            list_w = min(520, max(360, int(width * 0.34)))
+            list_h = 150
+            list_x = max(self._panel_padding, order_rect.x - list_w - self._panel_padding)
+            list_rect = pygame.Rect(list_x, top_y + 12, list_w, list_h)
+            # Shop viewport window fills the center play area by default.
+            shop_left = self._panel_padding
+            shop_top = top_y + self._panel_padding
+            shop_right = min(list_rect.x, order_rect.x) - self._panel_padding
+            shop_bottom = inv_rect.y - self._panel_padding
+            shop_w = max(520, shop_right - shop_left)
+            shop_h = max(420, shop_bottom - shop_top)
+            shop_rect = pygame.Rect(shop_left, shop_top, shop_w, shop_h)
             book_rect = pygame.Rect(
                 self._panel_padding,
-                self._shop_y_offset + self._panel_padding,
+                base_top + self._panel_padding,
                 max(520, int(width * 0.45)),
                 max(420, int(height * 0.55)),
             )
@@ -140,20 +185,45 @@ class ShopScene(Scene):
             list_rect = self._clamp_rect(list_rect, width, height)
             book_rect = self._clamp_rect(self.book_panel.rect.copy(), width, height)
             deck_rect = self._clamp_rect(self.deck_panel.rect.copy(), width, height)
+            shop_rect = self._clamp_rect(self.shop_panel.rect.copy(), width, height)
         self.order_panel = Panel(order_rect, "Ordering")
         self.stock_panel = Panel(stock_rect, "Stocking")
         self.inventory_panel = Panel(inv_rect, "Inventory")
         self.book_panel = Panel(book_rect, "Card Book")
         self.deck_panel = Panel(deck_rect, "Deck")
+        self.shop_panel = Panel(shop_rect, "Shop")
         self.shelf_list = ScrollList(list_rect, self.shelf_list.items)
         # Center the unified menu modal on resize.
         self.menu_panel = Panel(anchor_rect(self.app.screen, (420, 260), "center"), "Menu")
+        self._update_shop_viewport(rescale=True)
         self._last_screen_size = (width, height)
         self._layout_initialized = True
 
     def _clamp_rect(self, rect: pygame.Rect, width: int, height: int) -> pygame.Rect:
         rect.width = max(240, min(rect.width, width - 40))
         rect.height = max(140, min(rect.height, height - self._top_bar_height - 40))
+        rect.x = max(8, min(rect.x, width - rect.width - 8))
+        rect.y = max(self._top_bar_height + 8, min(rect.y, height - rect.height - 8))
+        return rect
+
+    def _clamp_rect_target(self, rect: pygame.Rect, width: int, height: int, target: str) -> pygame.Rect:
+        # Ensure key manage panels are always large enough for their controls.
+        min_w = 240
+        min_h = 140
+        if target == "stock":
+            min_w = 360
+            min_h = 520
+        elif target == "order":
+            min_w = 320
+            min_h = 220
+        elif target == "inventory":
+            min_w = 300
+            min_h = 220
+        elif target == "shop":
+            min_w = 560
+            min_h = 420
+        rect.width = max(min_w, min(rect.width, width - 40))
+        rect.height = max(min_h, min(rect.height, height - self._top_bar_height - 40))
         rect.x = max(8, min(rect.x, width - rect.width - 8))
         rect.y = max(self._top_bar_height + 8, min(rect.y, height - rect.height - 8))
         return rect
@@ -763,7 +833,7 @@ class ShopScene(Scene):
         """Initialize shop assets."""
         shop_assets = get_shop_asset_manager()
         shop_assets.init()
-        self._floor_surface = shop_assets.create_shop_floor_surface(SHOP_GRID, TILE_SIZE)
+        self._update_shop_viewport(rescale=True)
 
     def _set_object(self, kind: str) -> None:
         self.selected_object = kind
@@ -807,8 +877,16 @@ class ShopScene(Scene):
                 button.handle_event(event)
             return
         if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            ended_drag = self._drag_target
+            ended_resize = self._resize_target
             self._drag_target = None
             self._resize_target = None
+            if ended_resize == "shop":
+                # Rescale/rebuild floor once at end of resizing.
+                self._update_shop_viewport(rescale=True)
+            elif ended_drag == "shop":
+                # Ensure offsets are correct after drag.
+                self._update_shop_viewport(rescale=False)
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self._hit_drag_handle(event.pos):
                 return
@@ -879,12 +957,12 @@ class ShopScene(Scene):
             self.end_day()
 
     def _spawn_customer(self) -> None:
-        entrance = pygame.Vector2(1.5 * TILE_SIZE, (SHOP_GRID[1] - 1) * TILE_SIZE)
+        entrance = pygame.Vector2(1.5 * self.tile_px, (SHOP_GRID[1] - 1) * self.tile_px)
         shelves = self.app.state.shop_layout.shelf_tiles()
         if not shelves:
             return
         shelf = self.app.rng.choice(shelves)
-        target = pygame.Vector2((shelf[0] + 0.5) * TILE_SIZE, (shelf[1] + 0.5) * TILE_SIZE)
+        target = pygame.Vector2((shelf[0] + 0.5) * self.tile_px, (shelf[1] + 0.5) * self.tile_px)
         # Assign a random customer sprite
         shop_assets = get_shop_asset_manager()
         sprite_id = shop_assets.get_random_customer_id(self.app.rng)
@@ -905,13 +983,13 @@ class ShopScene(Scene):
             return
         if customer.state == "to_shelf":
             counter = self._find_object_tile("counter") or (10, 7)
-            customer.target = pygame.Vector2((counter[0] + 0.5) * TILE_SIZE, (counter[1] + 0.5) * TILE_SIZE)
+            customer.target = pygame.Vector2((counter[0] + 0.5) * self.tile_px, (counter[1] + 0.5) * self.tile_px)
             customer.state = "to_counter"
             customer.purchase = self._choose_shelf_purchase()
         elif customer.state == "to_counter":
             if customer.purchase:
                 self._process_purchase(customer.purchase)
-            exit_pos = pygame.Vector2(1.5 * TILE_SIZE, (SHOP_GRID[1] - 0.5) * TILE_SIZE)
+            exit_pos = pygame.Vector2(1.5 * self.tile_px, (SHOP_GRID[1] - 0.5) * self.tile_px)
             customer.target = exit_pos
             customer.state = "exit"
         elif customer.state == "exit":
@@ -966,20 +1044,28 @@ class ShopScene(Scene):
         self.app.state.last_summary.units_sold += 1
 
     def _tile_at_pos(self, pos: tuple[int, int]) -> tuple[int, int] | None:
+        if not self._shop_inner_rect().collidepoint(pos):
+            return None
         x, y = pos
         y_off = self._shop_y_offset
-        if y < y_off:
-            return None
         y = y - y_off
-        if x > SHOP_GRID[0] * TILE_SIZE or y > SHOP_GRID[1] * TILE_SIZE:
+        x = x - self._shop_x_offset
+        if x < 0:
             return None
-        return (x // TILE_SIZE, y // TILE_SIZE)
+        if x > SHOP_GRID[0] * self.tile_px or y > SHOP_GRID[1] * self.tile_px:
+            return None
+        return (x // self.tile_px, y // self.tile_px)
 
     def draw(self, surface: pygame.Surface) -> None:
         super().draw(surface)
+        self.shop_panel.draw(surface, self.theme)
+        clip = surface.get_clip()
+        surface.set_clip(self._shop_inner_rect())
         self._draw_grid(surface)
         self._draw_objects(surface)
         self._draw_customers(surface)
+        self._draw_status(surface)
+        surface.set_clip(clip)
         self.order_panel.draw(surface, self.theme)
         if self.current_tab == "manage":
             self.stock_panel.draw(surface, self.theme)
@@ -993,7 +1079,6 @@ class ShopScene(Scene):
             button.draw(surface, self.theme)
         for tb in self.tab_buttons:
             tb.draw(surface, self.theme)
-        self._draw_status(surface)
         if self.current_tab == "packs":
             self._draw_packs(surface)
         if self.current_tab == "manage":
@@ -1014,23 +1099,35 @@ class ShopScene(Scene):
 
     def _draw_grid(self, surface: pygame.Surface) -> None:
         y_off = self._shop_y_offset
+        x_off = self._shop_x_offset
         if self._floor_surface:
-            surface.blit(self._floor_surface, (0, y_off))
+            surface.blit(self._floor_surface, (x_off, y_off))
         else:
             for x in range(SHOP_GRID[0]):
                 for y in range(SHOP_GRID[1]):
-                    rect = pygame.Rect(x * TILE_SIZE, y * TILE_SIZE + y_off, TILE_SIZE, TILE_SIZE)
+                    rect = pygame.Rect(
+                        x * self.tile_px + x_off,
+                        y * self.tile_px + y_off,
+                        self.tile_px,
+                        self.tile_px,
+                    )
                     pygame.draw.rect(surface, (40, 42, 50), rect)
                     pygame.draw.rect(surface, (30, 32, 38), rect, 1)
 
     def _draw_objects(self, surface: pygame.Surface) -> None:
         shop_assets = get_shop_asset_manager()
         y_off = self._shop_y_offset
+        x_off = self._shop_x_offset
         for obj in self.app.state.shop_layout.objects:
-            rect = pygame.Rect(obj.tile[0] * TILE_SIZE, obj.tile[1] * TILE_SIZE + y_off, TILE_SIZE, TILE_SIZE)
+            rect = pygame.Rect(
+                obj.tile[0] * self.tile_px + x_off,
+                obj.tile[1] * self.tile_px + y_off,
+                self.tile_px,
+                self.tile_px,
+            )
             
             # Try to get furniture sprite
-            sprite = shop_assets.get_furniture_sprite(obj.kind, (TILE_SIZE, TILE_SIZE))
+            sprite = shop_assets.get_furniture_sprite(obj.kind, (self.tile_px, self.tile_px))
             
             if sprite:
                 surface.blit(sprite, rect.topleft)
@@ -1064,43 +1161,48 @@ class ShopScene(Scene):
 
     def _draw_customers(self, surface: pygame.Surface) -> None:
         shop_assets = get_shop_asset_manager()
-        customer_size = 40
+        customer_size = max(32, min(int(self.tile_px * 0.85), 64))
         y_off = self._shop_y_offset
+        x_off = self._shop_x_offset
         for customer in self.customers:
             if customer.done:
                 continue
             sprite = shop_assets.get_customer_sprite(customer.sprite_id, (customer_size, customer_size))
             if sprite:
-                sprite_x = int(customer.pos.x - customer_size // 2)
+                sprite_x = int(customer.pos.x - customer_size // 2 + x_off)
                 sprite_y = int(customer.pos.y - customer_size + 8 + y_off)
                 surface.blit(sprite, (sprite_x, sprite_y))
             else:
-                rect = pygame.Rect(customer.pos.x - 10, customer.pos.y - 10 + y_off, 20, 20)
+                rect = pygame.Rect(customer.pos.x - 10 + x_off, customer.pos.y - 10 + y_off, 20, 20)
                 pygame.draw.rect(surface, (200, 200, 120), rect)
 
     def _draw_status(self, surface: pygame.Surface) -> None:
-        y_off = self._shop_y_offset
+        rect = self.shop_panel.rect
+        inner = self._shop_inner_rect()
+        x_off = rect.x + 14
+        # Bottom-left inside the shop window (avoid the header).
+        y_base = max(inner.y + 6, rect.bottom - 66)
         text = self.theme.font.render(
             f"Day {self.app.state.day} | Money ${self.app.state.money}", True, self.theme.colors.text
         )
-        surface.blit(text, (20, SHOP_GRID[1] * TILE_SIZE + y_off + 8))
-        status_y = SHOP_GRID[1] * TILE_SIZE + y_off + 34
+        surface.blit(text, (x_off, y_base))
+        status_y = y_base + 26
         if self.day_running:
             timer_text = self.theme.font_small.render(
                 f"Day progress: {int(self.day_timer)}s/{int(self.day_duration)}s", True, self.theme.colors.muted
             )
-            surface.blit(timer_text, (20, status_y))
+            surface.blit(timer_text, (x_off, status_y))
         else:
             summary = self.app.state.last_summary
             summary_text = self.theme.font_small.render(
                 f"+${summary.revenue} | {summary.units_sold} sold | {summary.customers} customers",
                 True, self.theme.colors.muted,
             )
-            surface.blit(summary_text, (20, status_y))
+            surface.blit(summary_text, (x_off, status_y))
 
     def _draw_packs(self, surface: pygame.Surface) -> None:
         asset_mgr = get_asset_manager()
-        y = SHOP_GRID[1] * TILE_SIZE + self._shop_y_offset + 60
+        y = SHOP_GRID[1] * self.tile_px + self._shop_y_offset + 60
         for idx, card_id in enumerate(self.revealed_cards):
             rect = pygame.Rect(20 + idx * 130, y, 120, 160)
             if idx < self.reveal_index:
@@ -1125,15 +1227,18 @@ class ShopScene(Scene):
                 surface.blit(stats, (rect.x + 6, rect.bottom - 18))
 
     def _select_shelf_at_pos(self, pos: tuple[int, int]) -> str | None:
+        if not self._shop_inner_rect().collidepoint(pos):
+            return None
         y_off = self._shop_y_offset
+        x_off = self._shop_x_offset
         for obj in self.app.state.shop_layout.objects:
             if obj.kind != "shelf":
                 continue
             rect = pygame.Rect(
-                obj.tile[0] * TILE_SIZE,
-                obj.tile[1] * TILE_SIZE + y_off,
-                TILE_SIZE,
-                TILE_SIZE,
+                obj.tile[0] * self.tile_px + x_off,
+                obj.tile[1] * self.tile_px + y_off,
+                self.tile_px,
+                self.tile_px,
             )
             if rect.collidepoint(pos):
                 return self.app.state.shop_layout._key(obj.tile)
@@ -1155,6 +1260,8 @@ class ShopScene(Scene):
             if self.current_tab == "deck":
                 if self._start_drag_or_resize(self.deck_panel.rect, "deck", pos):
                     return True
+        if self._start_drag_or_resize(self.shop_panel.rect, "shop", pos):
+            return True
         return False
 
     def _start_drag_or_resize(self, rect: pygame.Rect, target: str, pos: tuple[int, int]) -> bool:
@@ -1186,11 +1293,13 @@ class ShopScene(Scene):
                 rect = self.book_panel.rect
             elif self._drag_target == "deck":
                 rect = self.deck_panel.rect
+            elif self._drag_target == "shop":
+                rect = self.shop_panel.rect
             else:
                 rect = self.shelf_list.rect
             rect.x = int(mouse.x - self._drag_offset.x)
             rect.y = int(mouse.y - self._drag_offset.y)
-            rect = self._clamp_rect(rect, width, height)
+            rect = self._clamp_rect_target(rect, width, height, self._drag_target)
             if self._drag_target == "order":
                 self.order_panel.rect = rect
                 self._relayout_buttons_only()
@@ -1204,6 +1313,9 @@ class ShopScene(Scene):
                 self._relayout_buttons_only()
             elif self._drag_target == "deck":
                 self.deck_panel.rect = rect
+            elif self._drag_target == "shop":
+                self.shop_panel.rect = rect
+                self._update_shop_viewport(rescale=False)
             else:
                 self.shelf_list.rect = rect
         if self._resize_target:
@@ -1217,12 +1329,14 @@ class ShopScene(Scene):
                 rect = self.book_panel.rect
             elif self._resize_target == "deck":
                 rect = self.deck_panel.rect
+            elif self._resize_target == "shop":
+                rect = self.shop_panel.rect
             else:
                 rect = self.shelf_list.rect
             delta = mouse - self._resize_start
             rect.width = int(self._resize_origin.x + delta.x)
             rect.height = int(self._resize_origin.y + delta.y)
-            rect = self._clamp_rect(rect, width, height)
+            rect = self._clamp_rect_target(rect, width, height, self._resize_target)
             if self._resize_target == "order":
                 self.order_panel.rect = rect
                 self._relayout_buttons_only()
@@ -1236,6 +1350,9 @@ class ShopScene(Scene):
                 self._relayout_buttons_only()
             elif self._resize_target == "deck":
                 self.deck_panel.rect = rect
+            elif self._resize_target == "shop":
+                self.shop_panel.rect = rect
+                self._update_shop_viewport(rescale=False)
             else:
                 self.shelf_list.rect = rect
 
