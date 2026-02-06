@@ -36,9 +36,15 @@ class ShopScene(Scene):
         # Hide legacy scene nav; use custom unified tabs instead.
         self.show_top_bar = False
         self.top_buttons.clear()
-        self.day_running = False
-        self.day_timer = 0.0
+        # Day/Night cycle (can be paused/resumed)
+        self.cycle_active = False
+        self.cycle_paused = False
+        self.cycle_phase: str = "day"  # "day" | "night"
+        self.phase_timer = 0.0
         self.day_duration = 60.0
+        self.night_duration = 40.0
+        self.day_transition_timer = 0.0  # fade-out tint when night -> day
+        self._autosaved_this_night = False
         self.customers: list[Customer] = []
         self.customer_schedule: list[float] = []
         self.spawned = 0
@@ -116,6 +122,10 @@ class ShopScene(Scene):
             return [
                 f"Last drag latency: avg {self._last_drag_latency_avg:0.2f}px | max {self._last_drag_latency_max:0.2f}px"
             ]
+        if self.cycle_active:
+            remain = (self.day_duration - self.phase_timer) if self.cycle_phase == "day" else (self.night_duration - self.phase_timer)
+            state = "PAUSED" if self.cycle_paused else "RUN"
+            return [f"Cycle: {self.cycle_phase.upper()} ({state}) | {max(0.0, remain):0.1f}s left"]
         return []
 
     def _last_drag_latency_frames_ok(self) -> bool:
@@ -869,21 +879,48 @@ class ShopScene(Scene):
             self._refresh_shelves()
 
     def start_day(self) -> None:
-        if self.day_running:
+        # Start new cycle, or resume if paused.
+        if not self.cycle_active:
+            self.cycle_active = True
+            self.cycle_paused = False
+            self.cycle_phase = "day"
+            self.phase_timer = 0.0
+            self.day_transition_timer = 0.0
+            self._begin_day_phase(reset_summary=True)
             return
-        self.day_running = True
-        self.day_timer = 0.0
+        if self.cycle_paused:
+            self.cycle_paused = False
+            return
+
+    def end_day(self) -> None:
+        # Legacy name: Stop button should PAUSE, not end.
+        if self.cycle_active:
+            self.cycle_paused = True
+
+    def _begin_day_phase(self, *, reset_summary: bool) -> None:
+        self.cycle_phase = "day"
+        self.phase_timer = 0.0
+        self._autosaved_this_night = False
         self.customers.clear()
         self.spawned = 0
         count = daily_customer_count(self.app.state.day, self.app.rng)
         self.customer_schedule = [i * (self.day_duration / max(1, count)) for i in range(count)]
-        self.app.state.last_summary = self.app.state.last_summary.__class__()
+        if reset_summary:
+            self.app.state.last_summary = self.app.state.last_summary.__class__()
 
-    def end_day(self) -> None:
-        self.day_running = False
+    def _begin_night_phase(self) -> None:
+        self.cycle_phase = "night"
+        self.phase_timer = 0.0
+        self._autosaved_this_night = False
+        # Clear customers for night.
+        self.customers.clear()
+        self.spawned = 0
+        self.customer_schedule = []
+        # Autosave at the beginning of every night.
         self.app.state.last_summary.profit = self.app.state.last_summary.revenue
-        self.app.state.day += 1
-        self.app.save_game()
+        if not self._autosaved_this_night:
+            self.app.save_game()
+            self._autosaved_this_night = True
 
     def handle_event(self, event: pygame.event.Event) -> None:
         super().handle_event(event)
@@ -977,22 +1014,39 @@ class ShopScene(Scene):
             tb.update(dt)
         for button in self.buttons:
             button.update(dt)
-        if self.day_running:
-            self._update_day(dt)
+        if self.cycle_active and not self.cycle_paused:
+            self._update_cycle(dt)
         if self.current_tab == "packs" and self.revealed_cards and self.reveal_index < len(self.revealed_cards):
             self.reveal_index += 1
 
+    def _update_cycle(self, dt: float) -> None:
+        # Fade-out tint when a new day starts.
+        if self.day_transition_timer > 0:
+            self.day_transition_timer = max(0.0, self.day_transition_timer - dt)
+
+        self.phase_timer += dt
+        if self.cycle_phase == "day":
+            self._update_day(dt)
+            if self.phase_timer >= self.day_duration:
+                self._begin_night_phase()
+        else:
+            # Night: no customers; just wait out the timer.
+            if self.phase_timer >= self.night_duration:
+                # Advance to next day.
+                self.app.state.day += 1
+                self.day_transition_timer = 2.0
+                self._begin_day_phase(reset_summary=True)
+                self.app.save_game()
+
     def _update_day(self, dt: float) -> None:
-        self.day_timer += dt
-        while self.spawned < len(self.customer_schedule) and self.day_timer >= self.customer_schedule[self.spawned]:
+        # phase_timer is the authoritative time for day/night.
+        while self.spawned < len(self.customer_schedule) and self.phase_timer >= self.customer_schedule[self.spawned]:
             self._spawn_customer()
             self.spawned += 1
         for customer in self.customers:
             if customer.done:
                 continue
             self._move_customer(customer, dt)
-        if self.spawned >= len(self.customer_schedule) and all(c.done for c in self.customers):
-            self.end_day()
 
     def _spawn_customer(self) -> None:
         entrance = pygame.Vector2(1.5 * self.tile_px, (SHOP_GRID[1] - 1) * self.tile_px)
@@ -1121,6 +1175,20 @@ class ShopScene(Scene):
             self._draw_grid(surface)
             self._draw_objects(surface)
             self._draw_customers(surface)
+            # Night/transition tint (barely visible blue).
+            if self.cycle_active:
+                inner = self._shop_inner_rect()
+                tint_alpha = 0
+                if self.cycle_phase == "night":
+                    tint_alpha = 28
+                elif self.day_transition_timer > 0:
+                    # Fade out over 2 seconds after night -> day.
+                    t = max(0.0, min(1.0, self.day_transition_timer / 2.0))
+                    tint_alpha = int(24 * t)
+                if tint_alpha > 0:
+                    tint = pygame.Surface((inner.width, inner.height), pygame.SRCALPHA)
+                    tint.fill((60, 90, 160, tint_alpha))
+                    surface.blit(tint, inner.topleft)
             self._draw_status(surface)
             surface.set_clip(clip)
             # Capture snapshot once when a shop drag/resize starts.
@@ -1211,7 +1279,7 @@ class ShopScene(Scene):
                 else:
                     color = (160, 100, 140)
                 pygame.draw.rect(surface, color, rect)
-                label = self.theme.font_small.render(obj.kind[0].upper(), True, self.theme.colors.text)
+                label = self.theme.render_text(self.theme.font_small, obj.kind[0].upper(), self.theme.colors.text)
                 surface.blit(label, label.get_rect(center=rect.center))
             
             # Draw stock info for shelves
@@ -1222,7 +1290,7 @@ class ShopScene(Scene):
                     pygame.draw.rect(surface, self.theme.colors.accent, rect, 2)
                 if stock and stock.product != "empty":
                     # Draw stock indicator
-                    text = self.theme.font_small.render(f"{stock.qty}", True, self.theme.colors.text)
+                    text = self.theme.render_text(self.theme.font_small, f"{stock.qty}", self.theme.colors.text)
                     # Position at bottom-right of tile
                     text_rect = text.get_rect(bottomright=(rect.right - 2, rect.bottom - 2))
                     # Add background for readability
@@ -1253,21 +1321,27 @@ class ShopScene(Scene):
         x_off = rect.x + 14
         # Bottom-left inside the shop window (avoid the header).
         y_base = max(inner.y + 6, rect.bottom - 66)
-        text = self.theme.font.render(
-            f"Day {self.app.state.day} | Money ${self.app.state.money}", True, self.theme.colors.text
+        text = self.theme.render_text(
+            self.theme.font, f"Day {self.app.state.day} | Money ${self.app.state.money}", self.theme.colors.text
         )
         surface.blit(text, (x_off, y_base))
         status_y = y_base + 26
-        if self.day_running:
-            timer_text = self.theme.font_small.render(
-                f"Day progress: {int(self.day_timer)}s/{int(self.day_duration)}s", True, self.theme.colors.muted
+        if self.cycle_active:
+            remain = (self.day_duration - self.phase_timer) if self.cycle_phase == "day" else (self.night_duration - self.phase_timer)
+            phase = "Day" if self.cycle_phase == "day" else "Night"
+            paused = " (Paused)" if self.cycle_paused else ""
+            timer_text = self.theme.render_text(
+                self.theme.font_small,
+                f"{phase}{paused}: {max(0.0, remain):0.1f}s left",
+                self.theme.colors.muted,
             )
             surface.blit(timer_text, (x_off, status_y))
         else:
             summary = self.app.state.last_summary
-            summary_text = self.theme.font_small.render(
+            summary_text = self.theme.render_text(
+                self.theme.font_small,
                 f"+${summary.revenue} | {summary.units_sold} sold | {summary.customers} customers",
-                True, self.theme.colors.muted,
+                self.theme.colors.muted,
             )
             surface.blit(summary_text, (x_off, status_y))
 
@@ -1285,15 +1359,15 @@ class ShopScene(Scene):
                     surface.blit(sprite, (rect.x + 28, rect.y + 15))
                 rarity_color = getattr(self.theme.colors, f"card_{card.rarity}")
                 draw_glow_border(surface, rect, rarity_color, border_width=2, glow_radius=4, glow_alpha=80)
-                id_text = self.theme.font_small.render(card.card_id.upper(), True, self.theme.colors.muted)
+                id_text = self.theme.render_text(self.theme.font_small, card.card_id.upper(), self.theme.colors.muted)
                 surface.blit(id_text, (rect.x + 6, rect.y + 4))
-                name = self.theme.font_small.render(card.name[:12], True, self.theme.colors.text)
+                name = self.theme.render_text(self.theme.font_small, card.name[:12], self.theme.colors.text)
                 surface.blit(name, (rect.x + 6, rect.y + 20))
                 desc = (card.description[:18] + "...") if len(card.description) > 18 else card.description
-                desc_text = self.theme.font_small.render(desc, True, self.theme.colors.muted)
+                desc_text = self.theme.render_text(self.theme.font_small, desc, self.theme.colors.muted)
                 surface.blit(desc_text, (rect.x + 6, rect.y + 100))
-                stats = self.theme.font_small.render(
-                    f"{card.cost}/{card.attack}/{card.health}", True, self.theme.colors.text
+                stats = self.theme.render_text(
+                    self.theme.font_small, f"{card.cost}/{card.attack}/{card.health}", self.theme.colors.text
                 )
                 surface.blit(stats, (rect.x + 6, rect.bottom - 18))
 
@@ -1316,21 +1390,24 @@ class ShopScene(Scene):
         return None
 
     def _hit_drag_handle(self, pos: tuple[int, int]) -> bool:
-        if self._start_drag_or_resize(self.order_panel.rect, "order", pos):
-            return True
+        # Hit-test from top-most to bottom-most (match draw stacking).
         if self.current_tab == "manage":
-            if self._start_drag_or_resize(self.stock_panel.rect, "stock", pos):
+            if self.manage_card_book_open:
+                if self._start_drag_or_resize(self.book_panel.rect, "book", pos):
+                    return True
+            if self._start_drag_or_resize(self.shelf_list.rect, "list", pos):
                 return True
             if self._start_drag_or_resize(self.inventory_panel.rect, "inventory", pos):
                 return True
-            if self._start_drag_or_resize(self.shelf_list.rect, "list", pos):
+            if self._start_drag_or_resize(self.stock_panel.rect, "stock", pos):
                 return True
-        if self.current_tab == "deck" or (self.current_tab == "manage" and self.manage_card_book_open):
+        if self.current_tab == "deck":
+            if self._start_drag_or_resize(self.deck_panel.rect, "deck", pos):
+                return True
             if self._start_drag_or_resize(self.book_panel.rect, "book", pos):
                 return True
-            if self.current_tab == "deck":
-                if self._start_drag_or_resize(self.deck_panel.rect, "deck", pos):
-                    return True
+        if self._start_drag_or_resize(self.order_panel.rect, "order", pos):
+            return True
         if self._start_drag_or_resize(self.shop_panel.rect, "shop", pos):
             return True
         return False
@@ -1437,7 +1514,10 @@ class ShopScene(Scene):
     
     def _draw_manage(self, surface: pygame.Surface) -> None:
         # Shelf list
-        title = self.theme.font_small.render("Shelf Stock", True, self.theme.colors.text)
+        # If the card-book overlay is open, keep the manage view uncluttered.
+        if self.manage_card_book_open:
+            return
+        title = self.theme.render_text(self.theme.font_small, "Shelf Stock", self.theme.colors.text)
         surface.blit(title, (self.shelf_list.rect.x, self.shelf_list.rect.y - 22))
         pygame.draw.rect(surface, self.theme.colors.border, self.shelf_list.rect, 2)
         self.shelf_list.draw(surface, self.theme)
@@ -1445,20 +1525,20 @@ class ShopScene(Scene):
         product = self.products[self.product_index]
         price_attr = self._price_attr_for_product(product)
         price_value = getattr(self.app.state.prices, price_attr) if price_attr else 0
-        prod_text = self.theme.font_small.render(
-            f"Product: {product} | Price: ${price_value}", True, self.theme.colors.text
+        prod_text = self.theme.render_text(
+            self.theme.font_small, f"Product: {product} | Price: ${price_value}", self.theme.colors.text
         )
         surface.blit(prod_text, (self.stock_panel.rect.x + 20, self.stock_panel.rect.bottom + 8))
         selected = self.selected_shelf_key or "None"
-        sel_text = self.theme.font_small.render(f"Selected shelf: {selected}", True, self.theme.colors.muted)
+        sel_text = self.theme.render_text(self.theme.font_small, f"Selected shelf: {selected}", self.theme.colors.muted)
         surface.blit(sel_text, (self.stock_panel.rect.x + 20, self.stock_panel.rect.bottom + 26))
         if self.selected_card_id:
             c = CARD_INDEX[self.selected_card_id]
             owned = self.app.state.collection.get(self.selected_card_id)
             in_deck = self.app.state.deck.cards.get(self.selected_card_id, 0)
-            card_text = self.theme.font_small.render(
+            card_text = self.theme.render_text(
+                self.theme.font_small,
                 f"Selected card: {c.name} ({c.card_id}) | Owned {owned} | In deck {in_deck}",
-                True,
                 self.theme.colors.muted,
             )
             surface.blit(card_text, (self.stock_panel.rect.x + 20, self.stock_panel.rect.bottom + 44))
@@ -1471,7 +1551,7 @@ class ShopScene(Scene):
         ] + [f"{r.title()}: {inv.singles.get(r, 0)}" for r in RARITIES]
         y = self.inventory_panel.rect.y + 36
         for line in inv_lines:
-            text = self.theme.font_small.render(line, True, self.theme.colors.muted)
+            text = self.theme.render_text(self.theme.font_small, line, self.theme.colors.muted)
             surface.blit(text, (self.inventory_panel.rect.x + 20, y))
             y += 18
 
@@ -1480,12 +1560,12 @@ class ShopScene(Scene):
             stock = self.app.state.shop_layout.shelf_stocks.get(self.selected_shelf_key)
             if stock:
                 y += 6
-                hdr = self.theme.font_small.render("Selected shelf contents", True, self.theme.colors.text)
+                hdr = self.theme.render_text(self.theme.font_small, "Selected shelf contents", self.theme.colors.text)
                 surface.blit(hdr, (self.inventory_panel.rect.x + 20, y))
                 y += 18
-                prod_line = self.theme.font_small.render(
+                prod_line = self.theme.render_text(
+                    self.theme.font_small,
                     f"{stock.product} x{stock.qty}/{stock.max_qty}",
-                    True,
                     self.theme.colors.muted,
                 )
                 surface.blit(prod_line, (self.inventory_panel.rect.x + 20, y))
@@ -1502,18 +1582,22 @@ class ShopScene(Scene):
                         more = max(0, len(counts) - 4)
                         if more:
                             parts.append(f"+{more} more")
-                        cards_line = self.theme.font_small.render("Cards: " + ", ".join(parts), True, self.theme.colors.muted)
+                        cards_line = self.theme.render_text(
+                            self.theme.font_small, "Cards: " + ", ".join(parts), self.theme.colors.muted
+                        )
                         surface.blit(cards_line, (self.inventory_panel.rect.x + 20, y))
                         y += 18
                     else:
-                        cards_line = self.theme.font_small.render("Cards: (none listed)", True, self.theme.colors.muted)
+                        cards_line = self.theme.render_text(
+                            self.theme.font_small, "Cards: (none listed)", self.theme.colors.muted
+                        )
                         surface.blit(cards_line, (self.inventory_panel.rect.x + 20, y))
                         y += 18
 
         # Pending order queue with ETA
         if self.app.state.pending_orders:
             y += 6
-            hdr = self.theme.font_small.render("Incoming (ETA)", True, self.theme.colors.text)
+            hdr = self.theme.render_text(self.theme.font_small, "Incoming (ETA)", self.theme.colors.text)
             surface.blit(hdr, (self.inventory_panel.rect.x + 20, y))
             y += 18
             now = self.app.state.time_seconds
@@ -1528,7 +1612,7 @@ class ShopScene(Scene):
                     if amt:
                         parts.append(f"{amt} {r}")
                 label = ", ".join(parts) if parts else "order"
-                line = self.theme.font_small.render(f"{eta:>2}s - {label}", True, self.theme.colors.muted)
+                line = self.theme.render_text(self.theme.font_small, f"{eta:>2}s - {label}", self.theme.colors.muted)
                 surface.blit(line, (self.inventory_panel.rect.x + 20, y))
                 y += 18
 
@@ -1564,22 +1648,22 @@ class ShopScene(Scene):
             if art:
                 surface.blit(art, (icon_rect.x + 4, icon_rect.y + 4))
             # Text info
-            name = self.theme.font_small.render(f"{card.name} ({card.card_id})", True, self.theme.colors.text)
+            name = self.theme.render_text(
+                self.theme.font_small, f"{card.name} ({card.card_id})", self.theme.colors.text
+            )
             surface.blit(name, (row_rect.x + 68, row_rect.y + 6))
             desc = (card.description[:60] + "...") if len(card.description) > 60 else card.description
-            desc_text = self.theme.font_small.render(desc, True, self.theme.colors.muted)
+            desc_text = self.theme.render_text(self.theme.font_small, desc, self.theme.colors.muted)
             surface.blit(desc_text, (row_rect.x + 68, row_rect.y + 24))
-            stats = self.theme.font_small.render(
+            stats = self.theme.render_text(
+                self.theme.font_small,
                 f"{card.rarity.title()} | Cost {card.cost} | {card.attack}/{card.health}",
-                True,
                 self.theme.colors.text,
             )
             surface.blit(stats, (row_rect.x + 68, row_rect.y + 42))
             value = self._card_value(card.rarity)
-            qty_text = self.theme.font_small.render(
-                f"Qty {entry.qty} | Value ${value}",
-                True,
-                self.theme.colors.muted,
+            qty_text = self.theme.render_text(
+                self.theme.font_small, f"Qty {entry.qty} | Value ${value}", self.theme.colors.muted
             )
             surface.blit(qty_text, (row_rect.x + 68, row_rect.y + 60))
             y += row_height
@@ -1590,14 +1674,14 @@ class ShopScene(Scene):
 
         # Deck list
         deck_rect = self.deck_panel.rect
-        deck_title = self.theme.font_small.render(
-            f"Deck ({self.app.state.deck.total()}/20)", True, self.theme.colors.text
+        deck_title = self.theme.render_text(
+            self.theme.font_small, f"Deck ({self.app.state.deck.total()}/20)", self.theme.colors.text
         )
         surface.blit(deck_title, (deck_rect.x + 12, deck_rect.y + 12))
         y = deck_rect.y + 36
         for card_id, qty in self.app.state.deck.summary():
             card = CARD_INDEX[card_id]
-            line = self.theme.font_small.render(f"{card.name} x{qty}", True, self.theme.colors.text)
+            line = self.theme.render_text(self.theme.font_small, f"{card.name} x{qty}", self.theme.colors.text)
             surface.blit(line, (deck_rect.x + 12, y))
             y += 18
 
@@ -1626,6 +1710,6 @@ class ShopScene(Scene):
         ]
         y = self.order_panel.rect.bottom + 8
         for line in info:
-            text = self.theme.font_small.render(line, True, self.theme.colors.muted)
+            text = self.theme.render_text(self.theme.font_small, line, self.theme.colors.muted)
             surface.blit(text, (self.order_panel.rect.x + 20, y))
             y += 18

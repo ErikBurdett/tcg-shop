@@ -42,9 +42,14 @@ class Scene:
         # app.scenes may not be populated during early init.
         return getattr(self.app, "scenes", {}).get("shop") if hasattr(self.app, "scenes") else None
 
-    def _is_day_running(self) -> bool:
+    def _cycle_state(self) -> tuple[bool, bool]:
+        """Return (active, paused) for the shop day/night cycle."""
         shop = self._shop_scene()
-        return bool(getattr(shop, "day_running", False))
+        if not shop:
+            return (False, False)
+        active = bool(getattr(shop, "cycle_active", False))
+        paused = bool(getattr(shop, "cycle_paused", False))
+        return (active, paused)
 
     def _global_start_day(self) -> None:
         shop = self._shop_scene()
@@ -53,7 +58,8 @@ class Scene:
 
     def _global_stop_day(self) -> None:
         shop = self._shop_scene()
-        if shop and hasattr(shop, "end_day") and getattr(shop, "day_running", False):
+        # Stop == pause (do not end/advance the day).
+        if shop and hasattr(shop, "end_day"):
             shop.end_day()  # type: ignore[misc]
 
     def _build_day_buttons(self) -> None:
@@ -72,13 +78,24 @@ class Scene:
         self._sync_day_buttons()
 
     def _sync_day_buttons(self) -> None:
-        running = self._is_day_running()
+        active, paused = self._cycle_state()
         if not self.day_buttons:
             return
-        self.day_buttons[0].text = "Start Day" if not running else "Day Running"
-        self.day_buttons[0].enabled = not running
-        self.day_buttons[1].text = "Stop Day"
-        self.day_buttons[1].enabled = running
+        if not active:
+            self.day_buttons[0].text = "Start"
+            self.day_buttons[0].enabled = True
+            self.day_buttons[1].text = "Pause"
+            self.day_buttons[1].enabled = False
+        elif paused:
+            self.day_buttons[0].text = "Resume"
+            self.day_buttons[0].enabled = True
+            self.day_buttons[1].text = "Paused"
+            self.day_buttons[1].enabled = False
+        else:
+            self.day_buttons[0].text = "Running"
+            self.day_buttons[0].enabled = False
+            self.day_buttons[1].text = "Pause"
+            self.day_buttons[1].enabled = True
 
     def _build_top_bar(self) -> None:
         self.top_buttons.clear()

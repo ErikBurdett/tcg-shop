@@ -191,6 +191,9 @@ class GameApp:
             dt = self.clock.tick(FPS) / 1000.0
             # Clamp dt to avoid huge simulation jumps on hitches (helps UI feel stable).
             dt = min(dt, 1 / 20)
+            # Pause simulation time when the shop cycle is paused.
+            shop = self.scenes.get("shop")
+            sim_paused = bool(getattr(shop, "cycle_active", False) and getattr(shop, "cycle_paused", False)) if shop else False
             if self.debug_overlay:
                 self.debug.begin_frame(dt=dt, fps=self.clock.get_fps())
                 # Reset per-frame cache counters (shown in overlay).
@@ -201,8 +204,10 @@ class GameApp:
                 self.debug.end_input_timing(events=events)
             else:
                 self._handle_events()
-            self.state.time_seconds += dt
-            self.process_pending_orders()
+            sim_dt = 0.0 if sim_paused else dt
+            self.state.time_seconds += sim_dt
+            if sim_dt > 0:
+                self.process_pending_orders()
             if self.debug_overlay:
                 self.debug.begin_update_timing()
                 self.scenes[self.current_scene_key].update(dt)

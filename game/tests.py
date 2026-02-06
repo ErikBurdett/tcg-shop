@@ -135,6 +135,38 @@ def test_text_cache_lru_and_counters() -> None:
     assert s3 is not s1
 
 
+def test_day_night_pause_smoke() -> None:
+    # Basic smoke test: pausing should freeze shop phase_timer progression.
+    import os
+
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import pygame
+
+    pygame.init()
+    pygame.display.set_mode((1, 1))
+    screen = pygame.display.get_surface()
+    assert screen is not None
+
+    from game.core.app import GameApp
+
+    app = GameApp(screen)
+    shop = app.scenes["shop"]
+    # Start day
+    shop.start_day()
+    assert shop.cycle_active is True
+    assert shop.cycle_paused is False
+    # Advance a bit
+    shop.update(0.5)
+    t1 = shop.phase_timer
+    assert t1 >= 0.0
+    # Pause
+    shop.end_day()
+    assert shop.cycle_paused is True
+    # Updating scene should not advance cycle when paused
+    shop.update(1.0)
+    assert shop.phase_timer == t1
+
+
 def run() -> None:
     test_pack_generation()
     test_deck_rules()
@@ -144,6 +176,7 @@ def run() -> None:
     test_order_delivery_apply()
     test_debug_overlay_toggle_smoke()
     test_text_cache_lru_and_counters()
+    test_day_night_pause_smoke()
     print("Sanity checks passed.")
 
 
