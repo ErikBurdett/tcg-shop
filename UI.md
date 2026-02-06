@@ -66,6 +66,12 @@ Each scene:
 
 The unified “single screen” experience is implemented in `game/scenes/shop_scene.py` by rendering different panels depending on `current_tab`.
 
+### Actor simulation (staff/player)
+The shop scene also runs a lightweight “actor” simulation (distinct from customers):
+- `game/sim/actors.py` defines a `Staff` dataclass + `update_staff()` state machine
+- `ShopScene` updates the staff only during the **Day** phase (paused during pause/night)
+- Rendering lives in `ShopScene._draw_player()` and respects the shop viewport clip
+
 ### Global, always-available controls
 `Scene` renders a wrapped top bar and a bottom-middle Start/Stop day control that proxies to the shop scene:
 

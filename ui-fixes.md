@@ -148,3 +148,6 @@ Recommended follow-ups (incremental):
 - Add optional caching for large list views (render list region to an offscreen surface and only redraw when dirty).
 - Implement a reusable modal stack and true window z-ordering across all panels.
 
+## Related: staff actor rendering
+The shop view now also includes a visible staff actor with an XP bar + level indicator. The render path is kept viewport-safe and uses cached text. See `staff_xp_overview.md` for details.
+

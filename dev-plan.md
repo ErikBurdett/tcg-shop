@@ -95,7 +95,8 @@ This plan is based on a scan of:
   - **Where**: Pack UI in `ShopScene` and/or `PackOpenScene`; assets in `game/assets/*`.
 
 - **P2.2 Auto-restock / demand forecasting**
-  - **Where**: `game/sim/economy.py` (demand), `ShopScene` manage automation UI, possible new sim module.
+  - **Status**: partial (a roaming staff actor exists; demand forecasting is still missing)
+  - **Where**: `game/sim/actors.py` (staff state machine), `game/sim/economy.py` (demand), `ShopScene` manage automation UI
 
 - **P2.3 Accessibility + UI scaling**
   - **Where**: `game/ui/theme.py` (fonts/colors), `game/config.py` (settings), global UI scaling.

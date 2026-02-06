@@ -15,6 +15,7 @@ from game.assets import get_asset_manager
 from game.assets.shop import get_shop_asset_manager
 from game.ui.effects import draw_glow_border
 from game.ui.layout import anchor_rect
+from game.sim.actors import Staff, update_staff
 
 MINI_GRID = (14, 8)
 MINI_TILE = 42
@@ -110,6 +111,12 @@ class ShopScene(Scene):
         self._shop_resize_preview: pygame.Surface | None = None
         self._shop_resize_preview_size = (0, 0)
         self._shop_resize_preview_time = 0.0
+        # Staff actor (auto-restock) + render cache for level label.
+        self.staff = Staff(pos=(10.5, 7.5))
+        self._staff_level_cached = -1
+        self._staff_level_text: pygame.Surface | None = None
+        self._staff_blocked_tiles: set[tuple[int, int]] = set()
+        self._staff_blocked_count = -1
         self._layout()
         self._build_buttons()
         self._init_assets()
@@ -1048,6 +1055,26 @@ class ShopScene(Scene):
                 continue
             self._move_customer(customer, dt)
 
+        # Staff actor update (auto-restock) - scan throttled inside update_staff.
+        # Compute blocked tiles cache only when shop objects count changes.
+        obj_count = len(self.app.state.shop_layout.objects)
+        if obj_count != self._staff_blocked_count:
+            self._staff_blocked_tiles = {obj.tile for obj in self.app.state.shop_layout.objects}
+            self._staff_blocked_count = obj_count
+        did = update_staff(
+            self.staff,
+            dt,
+            grid=SHOP_GRID,
+            blocked_tiles=self._staff_blocked_tiles,
+            shelf_stocks=self.app.state.shop_layout.shelf_stocks,
+            inventory=self.app.state.inventory,
+            collection=self.app.state.collection,
+            deck=self.app.state.deck,
+        )
+        if did and self.current_tab == "manage":
+            self._refresh_shelves()
+            self._build_buttons()
+
     def _spawn_customer(self) -> None:
         entrance = pygame.Vector2(1.5 * self.tile_px, (SHOP_GRID[1] - 1) * self.tile_px)
         shelves = self.app.state.shop_layout.shelf_tiles()
@@ -1175,6 +1202,7 @@ class ShopScene(Scene):
             self._draw_grid(surface)
             self._draw_objects(surface)
             self._draw_customers(surface)
+            self._draw_player(surface)
             # Night/transition tint (barely visible blue).
             if self.cycle_active:
                 inner = self._shop_inner_rect()
@@ -1314,6 +1342,62 @@ class ShopScene(Scene):
             else:
                 rect = pygame.Rect(customer.pos.x - 10 + x_off, customer.pos.y - 10 + y_off, 20, 20)
                 pygame.draw.rect(surface, (200, 200, 120), rect)
+
+    def _draw_player(self, surface: pygame.Surface) -> None:
+        """Draw staff actor + XP bar + level indicator (clipped to shop viewport)."""
+        # Actor position is in tile-space; convert to world pixels then to screen.
+        x_off = self._shop_x_offset
+        y_off = self._shop_y_offset
+        px = self.staff.pos[0] * self.tile_px + x_off
+        py = self.staff.pos[1] * self.tile_px + y_off
+
+        size = max(30, min(int(self.tile_px * 0.9), 60))
+        shop_assets = get_shop_asset_manager()
+        sprite = shop_assets.get_customer_sprite(0, (size, size))
+        if sprite:
+            sx = int(px - size // 2)
+            sy = int(py - size + 8)
+            surface.blit(sprite, (sx, sy))
+        else:
+            rect = pygame.Rect(int(px - 10), int(py - 18), 20, 20)
+            pygame.draw.rect(surface, (160, 220, 255), rect)
+
+        # XP + level (cheap rect fill + cached level text).
+        xp_in_level = self.staff.xp % 100
+        frac = xp_in_level / 100.0
+        bar_w = max(24, min(42, size))
+        bar_h = 4
+        bar_x = int(px - bar_w // 2)
+        bar_y = int(py + 10)
+        pygame.draw.rect(surface, (10, 12, 16), pygame.Rect(bar_x, bar_y, bar_w, bar_h))
+        pygame.draw.rect(surface, (40, 60, 90), pygame.Rect(bar_x, bar_y, bar_w, bar_h), 1)
+        fill_w = int(bar_w * frac)
+        if fill_w > 0:
+            pygame.draw.rect(surface, (90, 170, 255), pygame.Rect(bar_x, bar_y, fill_w, bar_h))
+
+        if self.staff.level != self._staff_level_cached or self._staff_level_text is None:
+            self._staff_level_cached = self.staff.level
+            self._staff_level_text = self.theme.render_text(
+                self.theme.font_small, f"Lv {self.staff.level}", self.theme.colors.muted
+            )
+        if self._staff_level_text:
+            surface.blit(self._staff_level_text, (bar_x, bar_y + 6))
+
+        # Optional debug: draw path/target while debug overlay is enabled.
+        if getattr(self.app, "debug_overlay", False) and (self.staff.path or self.staff.target_tile):
+            pts: list[tuple[int, int]] = []
+            pts.append((int(px), int(py)))
+            for t in self.staff.path:
+                cx = int((t[0] + 0.5) * self.tile_px + x_off)
+                cy = int((t[1] + 0.5) * self.tile_px + y_off)
+                pts.append((cx, cy))
+            if self.staff.target_tile:
+                t = self.staff.target_tile
+                cx = int((t[0] + 0.5) * self.tile_px + x_off)
+                cy = int((t[1] + 0.5) * self.tile_px + y_off)
+                pts.append((cx, cy))
+            if len(pts) >= 2:
+                pygame.draw.lines(surface, (90, 170, 255), False, pts, 2)
 
     def _draw_status(self, surface: pygame.Surface) -> None:
         rect = self.shop_panel.rect

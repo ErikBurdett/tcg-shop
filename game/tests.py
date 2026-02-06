@@ -167,6 +167,31 @@ def test_day_night_pause_smoke() -> None:
     assert shop.phase_timer == t1
 
 
+def test_staff_choose_restock_plan() -> None:
+    from game.sim.actors import choose_restock_plan
+    from game.sim.shop import ShelfStock
+    from game.sim.inventory import Inventory
+    from game.cards.collection import CardCollection
+    from game.cards.deck import Deck
+
+    inv = Inventory(booster_packs=5, decks=0, singles={"common": 0, "uncommon": 0, "rare": 0, "epic": 0, "legendary": 0})
+    col = CardCollection()
+    deck = Deck()
+    # booster shelf low => should pick booster
+    shelves = {"2,2": ShelfStock("booster", qty=1, max_qty=10)}
+    plan = choose_restock_plan((0, 0), shelf_stocks=shelves, inventory=inv, collection=col, deck=deck)
+    assert plan is not None and plan.product == "booster"
+
+    # listed card shelf should prefer card restock if collection allows
+    from game.cards.card_defs import get_all_cards
+
+    cid = get_all_cards()[0].card_id
+    col.add(cid, 2)
+    shelves = {"3,3": ShelfStock(f"single_{get_all_cards()[0].rarity}", qty=1, max_qty=10, cards=[cid])}
+    plan2 = choose_restock_plan((0, 0), shelf_stocks=shelves, inventory=Inventory(), collection=col, deck=deck)
+    assert plan2 is not None and plan2.card_id == cid
+
+
 def run() -> None:
     test_pack_generation()
     test_deck_rules()
@@ -177,6 +202,7 @@ def run() -> None:
     test_debug_overlay_toggle_smoke()
     test_text_cache_lru_and_counters()
     test_day_night_pause_smoke()
+    test_staff_choose_restock_plan()
     print("Sanity checks passed.")
 
 

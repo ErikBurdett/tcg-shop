@@ -6,6 +6,7 @@ This checklist is intended to verify **low input latency** and **stable frame ti
 - Toggle the debug overlay with **F3**
   - Watch: **input / update / draw (ms)**, **draw calls**, **text cache hit/miss**
   - In `ShopScene`, watch: **Drag(shop) latency** line (avg/max pixels)
+  - Staff path/target is drawn in the shop viewport while F3 is enabled (debug visual)
 
 ## Manual QA checklist
 

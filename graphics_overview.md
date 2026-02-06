@@ -16,6 +16,7 @@ The shop scene draws the floor, objects, customers, and then UI elements. This o
         self._draw_grid(surface)
         self._draw_objects(surface)
         self._draw_customers(surface)
+        self._draw_player(surface)
         self._draw_status(surface)
         surface.set_clip(clip)
         self.order_panel.draw(surface, self.theme)

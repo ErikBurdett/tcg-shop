@@ -54,6 +54,10 @@ python main.py
   - Selecting a shelf now shows **its contents** (including listed cards summary) in the Inventory panel.
 - **Visual**
   - Cards gain a subtle **rarity-colored edge glow** in key UI renders.
+- **Simulation**
+  - **Day/Night cycle**: 60s day + 40s night, with **pause/resume**.
+  - **Autosave**: game auto-saves at the **start of every night**.
+  - **Roaming staff**: visible staff actor auto-restocks low shelves (based on shelf contents) and gains XP/levels.
 
 ## Asset Specs
 ### Global Pixel Sizes
@@ -84,6 +88,7 @@ python main.py
 ### Implemented
 - [x] Shop grid placement (shelves, counter, poster)
 - [x] Customer traffic and purchases
+- [x] Roaming staff actor that auto-restocks shelves (with XP/level)
 - [x] Inventory ordering and shelf stocking
 - [x] Delayed delivery queue (real-time, ~30s)
 - [x] Pricing controls in unified Manage UI
@@ -101,7 +106,7 @@ python main.py
 
 ### Not Implemented / Incomplete
 - [ ] Sell flow UI (buylist/retail sliders, confirmations, receipts)
-- [ ] Auto-restock / demand forecasting
+- [ ] Demand forecasting / smarter auto-restock policies (current: threshold-based staff restock)
 - [ ] Pack opening FX and pack artwork
 - [ ] Collection browser filters/sorting/search (rarity, name, owned, value)
 - [ ] Battle rewards + progression loop
@@ -164,6 +169,7 @@ Open with ` and enter commands:
 - `UI.md`: UI architecture, best practices, and UI roadmap
 - `TCG_Sim_ OverView Roadmap.md`: higher-level feature roadmap
 - `saves.md`: save slot system details
+- `staff_xp_overview.md`: staff/player actor overview + XP system notes
 
 ## Tests
 Run sanity checks:
