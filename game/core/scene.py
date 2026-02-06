@@ -135,6 +135,10 @@ class Scene:
         for button in self.day_buttons:
             button.draw(surface, self.theme)
 
+    def debug_lines(self) -> list[str]:
+        """Optional per-scene debug overlay lines."""
+        return []
+
     def on_enter(self) -> None:
         pass
 

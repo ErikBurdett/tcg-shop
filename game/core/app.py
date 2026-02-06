@@ -10,6 +10,7 @@ from game.config import FPS, Prices, SEED, START_DAY, START_MONEY, START_PACKS
 from game.core.events import EventBus
 from game.core.input import InputMap
 from game.core.save import SaveManager
+from game.core.debug_overlay import DebugOverlay
 from game.ui.theme import Theme
 from game.sim.inventory import Inventory, InventoryOrder
 from game.sim.shop import ShopLayout
@@ -90,6 +91,7 @@ class GameApp:
         self.theme = Theme()
         self.rng = random.Random(SEED)
         self.debug_overlay = False
+        self.debug = DebugOverlay()
         self.console_open = False
         self.console_text = ""
         self.console_history: list[str] = []
@@ -187,20 +189,42 @@ class GameApp:
     def run(self) -> None:
         while self.running:
             dt = self.clock.tick(FPS) / 1000.0
-            self._handle_events()
+            # Clamp dt to avoid huge simulation jumps on hitches (helps UI feel stable).
+            dt = min(dt, 1 / 20)
+            if self.debug_overlay:
+                self.debug.begin_frame(dt=dt, fps=self.clock.get_fps())
+                # Reset per-frame cache counters (shown in overlay).
+                if hasattr(self.theme, "text_cache"):
+                    self.theme.text_cache.begin_frame()  # type: ignore[attr-defined]
+                self.debug.begin_input_timing()
+                events = self._handle_events()
+                self.debug.end_input_timing(events=events)
+            else:
+                self._handle_events()
             self.state.time_seconds += dt
             self.process_pending_orders()
-            self.scenes[self.current_scene_key].update(dt)
-            self._draw()
+            if self.debug_overlay:
+                self.debug.begin_update_timing()
+                self.scenes[self.current_scene_key].update(dt)
+                self.debug.end_update_timing()
+                self.debug.begin_draw_timing()
+                self._draw()
+                self.debug.end_draw_timing()
+            else:
+                self.scenes[self.current_scene_key].update(dt)
+                self._draw()
 
-    def _handle_events(self) -> None:
+    def _handle_events(self) -> int:
+        count = 0
         for event in pygame.event.get():
+            count += 1
             if event.type == pygame.QUIT:
                 self.running = False
-                return
+                return count
 
             if self.input_map.is_action(event, "debug"):
                 self.debug_overlay = not self.debug_overlay
+                self.debug.set_enabled(self.debug_overlay)
             if self.input_map.is_action(event, "console"):
                 self.console_open = not self.console_open
                 if not self.console_open:
@@ -211,6 +235,7 @@ class GameApp:
                 self._handle_console_event(event)
             else:
                 self.scenes[self.current_scene_key].handle_event(event)
+        return count
 
     def _handle_console_event(self, event: pygame.event.Event) -> None:
         if event.type != pygame.KEYDOWN:
@@ -252,23 +277,30 @@ class GameApp:
         pygame.display.flip()
 
     def _draw_debug_overlay(self) -> None:
-        font = self.theme.font_small
-        fps = int(self.clock.get_fps())
-        lines = [
-            f"FPS: {fps}",
+        scene = self.scenes.get(self.current_scene_key)
+        scene_lines: list[str] = []
+        if scene and hasattr(scene, "debug_lines"):
+            try:
+                scene_lines = list(scene.debug_lines())  # type: ignore[misc]
+            except Exception:
+                scene_lines = []
+        hits = 0
+        misses = 0
+        if hasattr(self.theme, "text_cache"):
+            hits = int(getattr(self.theme.text_cache, "frame_hits", 0))  # type: ignore[attr-defined]
+            misses = int(getattr(self.theme.text_cache, "frame_misses", 0))  # type: ignore[attr-defined]
+        self.debug.frame.text_hits = hits
+        self.debug.frame.text_misses = misses
+
+        extra = [
             f"Scene: {self.current_scene_key}",
-            f"Money: {self.state.money}",
+            f"Money: ${self.state.money}",
             f"Day: {self.state.day}",
             f"Boosters: {self.state.inventory.booster_packs}",
             f"Decks: {self.state.inventory.decks}",
             f"Singles: {self.state.inventory.total_singles()}",
-        ]
-        x = 8
-        y = 52
-        for line in lines:
-            text = font.render(line, True, self.theme.colors.text)
-            self.screen.blit(text, (x, y))
-            y += 18
+        ] + scene_lines
+        self.debug.draw(self.screen, theme=self.theme, extra_lines=extra)
 
     def _draw_console(self) -> None:
         rect = pygame.Rect(12, 520, 520, 180)

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pygame
 
+from game.ui.text_cache import TextCache
+
 
 class Colors:
     bg = (20, 22, 28)
@@ -31,3 +33,11 @@ class Theme:
         self.font = pygame.font.SysFont("arial", 20)
         self.font_large = pygame.font.SysFont("arial", 28)
         self.font_title = pygame.font.SysFont("arial", 48, bold=True)
+        self.text_cache = TextCache(max_items=2048)
+
+    def render_text(
+        self, font: pygame.font.Font, text: str, color: tuple[int, int, int] | None = None
+    ) -> pygame.Surface:
+        """Render text using a shared cache."""
+        c = color or self.colors.text
+        return self.text_cache.render(font, text, c)

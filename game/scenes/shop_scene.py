@@ -92,9 +92,34 @@ class ShopScene(Scene):
         self._resize_target: str | None = None
         self._resize_start = pygame.Vector2()
         self._resize_origin = pygame.Vector2()
+        # Drag latency stats (mouse vs window position) for debug overlay.
+        self._drag_latency_sum = 0.0
+        self._drag_latency_max = 0.0
+        self._drag_latency_frames = 0
+        self._last_drag_latency_avg = 0.0
+        self._last_drag_latency_max = 0.0
+        # Shop window caching during drag/resize (snappy interaction).
+        self._shop_drag_snapshot: pygame.Surface | None = None
+        self._shop_snapshot_pending = False
+        self._shop_resize_preview: pygame.Surface | None = None
+        self._shop_resize_preview_size = (0, 0)
+        self._shop_resize_preview_time = 0.0
         self._layout()
         self._build_buttons()
         self._init_assets()
+
+    def debug_lines(self) -> list[str]:
+        if self._drag_target:
+            avg = (self._drag_latency_sum / self._drag_latency_frames) if self._drag_latency_frames else 0.0
+            return [f"Drag({self._drag_target}) latency: avg {avg:0.2f}px | max {self._drag_latency_max:0.2f}px"]
+        if self._last_drag_latency_frames_ok():
+            return [
+                f"Last drag latency: avg {self._last_drag_latency_avg:0.2f}px | max {self._last_drag_latency_max:0.2f}px"
+            ]
+        return []
+
+    def _last_drag_latency_frames_ok(self) -> bool:
+        return self._last_drag_latency_max > 0.0 or self._last_drag_latency_avg > 0.0
 
     def _shop_inner_rect(self) -> pygame.Rect:
         # Keep consistent with drag header zone height (24) and panel border padding.
@@ -881,12 +906,25 @@ class ShopScene(Scene):
             ended_resize = self._resize_target
             self._drag_target = None
             self._resize_target = None
+            # Finalize drag latency stats.
+            if ended_drag:
+                avg = (self._drag_latency_sum / self._drag_latency_frames) if self._drag_latency_frames else 0.0
+                self._last_drag_latency_avg = avg
+                self._last_drag_latency_max = self._drag_latency_max
+            self._drag_latency_sum = 0.0
+            self._drag_latency_max = 0.0
+            self._drag_latency_frames = 0
             if ended_resize == "shop":
                 # Rescale/rebuild floor once at end of resizing.
                 self._update_shop_viewport(rescale=True)
             elif ended_drag == "shop":
                 # Ensure offsets are correct after drag.
                 self._update_shop_viewport(rescale=False)
+            return
+
+        # Pointer capture: when dragging/resizing, don't propagate events to underlying UI.
+        if self._drag_target or self._resize_target:
+            return
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self._hit_drag_handle(event.pos):
                 return
@@ -1058,14 +1096,47 @@ class ShopScene(Scene):
 
     def draw(self, surface: pygame.Surface) -> None:
         super().draw(surface)
-        self.shop_panel.draw(surface, self.theme)
-        clip = surface.get_clip()
-        surface.set_clip(self._shop_inner_rect())
-        self._draw_grid(surface)
-        self._draw_objects(surface)
-        self._draw_customers(surface)
-        self._draw_status(surface)
-        surface.set_clip(clip)
+        dragging_shop = self._drag_target == "shop" or self._resize_target == "shop"
+        if dragging_shop and self._shop_drag_snapshot is not None:
+            # Fast path: reuse cached shop surface while dragging/resizing.
+            if self._resize_target == "shop":
+                size = (self.shop_panel.rect.width, self.shop_panel.rect.height)
+                now = self.app.state.time_seconds
+                if size != self._shop_resize_preview_size and (now - self._shop_resize_preview_time) >= (1 / 20):
+                    # Throttle preview rescale to reduce CPU while resizing.
+                    self._shop_resize_preview = pygame.transform.scale(self._shop_drag_snapshot, size)
+                    self._shop_resize_preview_size = size
+                    self._shop_resize_preview_time = now
+                preview = self._shop_resize_preview or self._shop_drag_snapshot
+                surface.blit(preview, self.shop_panel.rect.topleft)
+            else:
+                surface.blit(self._shop_drag_snapshot, self.shop_panel.rect.topleft)
+            # Outline to indicate live drag/resize.
+            pygame.draw.rect(surface, self.theme.colors.accent, self.shop_panel.rect, 2)
+        else:
+            # Normal full render.
+            self.shop_panel.draw(surface, self.theme)
+            clip = surface.get_clip()
+            surface.set_clip(self._shop_inner_rect())
+            self._draw_grid(surface)
+            self._draw_objects(surface)
+            self._draw_customers(surface)
+            self._draw_status(surface)
+            surface.set_clip(clip)
+            # Capture snapshot once when a shop drag/resize starts.
+            if dragging_shop and self._shop_drag_snapshot is None:
+                try:
+                    self._shop_drag_snapshot = surface.subsurface(self.shop_panel.rect).copy()
+                    self._shop_resize_preview = None
+                    self._shop_resize_preview_size = (0, 0)
+                    self._shop_resize_preview_time = 0.0
+                except ValueError:
+                    # If subsurface fails (edge cases), skip caching.
+                    self._shop_drag_snapshot = None
+            # Clear snapshot when not dragging.
+            if not dragging_shop:
+                self._shop_drag_snapshot = None
+                self._shop_resize_preview = None
         self.order_panel.draw(surface, self.theme)
         if self.current_tab == "manage":
             self.stock_panel.draw(surface, self.theme)
@@ -1297,9 +1368,16 @@ class ShopScene(Scene):
                 rect = self.shop_panel.rect
             else:
                 rect = self.shelf_list.rect
-            rect.x = int(mouse.x - self._drag_offset.x)
-            rect.y = int(mouse.y - self._drag_offset.y)
+            expected = pygame.Vector2(mouse.x - self._drag_offset.x, mouse.y - self._drag_offset.y)
+            rect.x = int(expected.x)
+            rect.y = int(expected.y)
             rect = self._clamp_rect_target(rect, width, height, self._drag_target)
+            # Track drag latency (distance between expected and applied topleft).
+            actual = pygame.Vector2(rect.x, rect.y)
+            err = (actual - expected).length()
+            self._drag_latency_sum += err
+            self._drag_latency_max = max(self._drag_latency_max, err)
+            self._drag_latency_frames += 1
             if self._drag_target == "order":
                 self.order_panel.rect = rect
                 self._relayout_buttons_only()

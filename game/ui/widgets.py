@@ -35,7 +35,7 @@ class Button:
             color = theme.colors.panel_alt
         pygame.draw.rect(surface, color, self.rect, border_radius=4)
         pygame.draw.rect(surface, theme.colors.border, self.rect, 2, border_radius=4)
-        text = theme.font.render(self.text, True, theme.colors.text)
+        text = theme.render_text(theme.font, self.text, theme.colors.text)
         surface.blit(text, text.get_rect(center=self.rect.center))
 
 
@@ -48,7 +48,7 @@ class Panel:
         pygame.draw.rect(surface, theme.colors.panel, self.rect)
         pygame.draw.rect(surface, theme.colors.border, self.rect, 2)
         if self.title:
-            text = theme.font.render(self.title, True, theme.colors.text)
+            text = theme.render_text(theme.font, self.title, theme.colors.text)
             surface.blit(text, (self.rect.x + 8, self.rect.y + 6))
 
 
@@ -60,7 +60,7 @@ class Label:
 
     def draw(self, surface: pygame.Surface, theme: Theme) -> None:
         color = self.color or theme.colors.text
-        text = theme.font.render(self.text, True, color)
+        text = theme.render_text(theme.font, self.text, color)
         surface.blit(text, self.rect.topleft)
 
 
@@ -114,7 +114,7 @@ class ScrollList:
             item_rect = pygame.Rect(self.rect.x, y, self.rect.width, self.item_height)
             if idx == self.hover_index:
                 pygame.draw.rect(surface, theme.colors.panel, item_rect)
-            text = theme.font_small.render(item.label, True, theme.colors.text)
+            text = theme.render_text(theme.font_small, item.label, theme.colors.text)
             surface.blit(text, (item_rect.x + 6, item_rect.y + 6))
             y += self.item_height
         surface.set_clip(clip)
@@ -136,7 +136,7 @@ class Tooltip:
         if not self.text:
             return
         padding = 6
-        text_surf = theme.font_small.render(self.text, True, theme.colors.text)
+        text_surf = theme.render_text(theme.font_small, self.text, theme.colors.text)
         rect = text_surf.get_rect(topleft=(self.pos[0] + 12, self.pos[1] + 12))
         rect.inflate_ip(padding * 2, padding * 2)
         pygame.draw.rect(surface, theme.colors.panel, rect)

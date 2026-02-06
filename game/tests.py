@@ -72,6 +72,69 @@ def test_order_delivery_apply() -> None:
     assert inv.booster_packs == 5
 
 
+def test_debug_overlay_toggle_smoke() -> None:
+    # Headless-friendly pygame init.
+    import os
+
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import pygame
+
+    pygame.init()
+    pygame.display.set_mode((1, 1))
+    screen = pygame.display.get_surface()
+    assert screen is not None
+
+    from game.core.debug_overlay import DebugOverlay
+    from game.ui.theme import Theme
+    from game.ui.widgets import Button, Panel
+
+    theme = Theme()
+    overlay = DebugOverlay()
+
+    # Enable and verify instrumentation doesn't crash.
+    overlay.set_enabled(True)
+    overlay.begin_frame(dt=1 / 60, fps=60.0)
+    overlay.begin_input_timing()
+    overlay.end_input_timing(events=3)
+
+    # pygame.draw.* calls should be counted.
+    pygame.draw.rect(screen, (255, 0, 0), pygame.Rect(0, 0, 1, 1))
+    assert overlay.frame.draw_calls >= 1
+
+    # Disable should restore patched functions.
+    overlay.set_enabled(False)
+    pygame.draw.rect(screen, (0, 255, 0), pygame.Rect(0, 0, 1, 1))
+
+
+def test_text_cache_lru_and_counters() -> None:
+    import os
+
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import pygame
+
+    pygame.init()
+    pygame.display.set_mode((1, 1))
+
+    from game.ui.text_cache import TextCache
+
+    font = pygame.font.SysFont("arial", 16)
+    cache = TextCache(max_items=2)
+    cache.begin_frame()
+    s1 = cache.render(font, "hello", (255, 255, 255))
+    assert cache.frame_misses == 1 and cache.frame_hits == 0
+    s2 = cache.render(font, "hello", (255, 255, 255))
+    assert s1 is s2
+    assert cache.frame_hits == 1
+    # Fill + evict oldest
+    cache.render(font, "a", (255, 255, 255))
+    cache.render(font, "b", (255, 255, 255))
+    # "hello" should have been evicted (LRU) since max_items=2
+    cache.begin_frame()
+    s3 = cache.render(font, "hello", (255, 255, 255))
+    assert cache.frame_misses == 1
+    assert s3 is not s1
+
+
 def run() -> None:
     test_pack_generation()
     test_deck_rules()
@@ -79,6 +142,8 @@ def run() -> None:
     test_economy_purchase()
     test_shop_no_overlap_place()
     test_order_delivery_apply()
+    test_debug_overlay_toggle_smoke()
+    test_text_cache_lru_and_counters()
     print("Sanity checks passed.")
 
 
