@@ -4,9 +4,19 @@ from dataclasses import dataclass
 
 import pygame
 
-from game.config import SHOP_GRID, TILE_SIZE
+from game.config import (
+    SHOP_GRID,
+    TILE_SIZE,
+    CUSTOMER_BROWSE_TIME_RANGE,
+    CUSTOMER_PAY_TIME_RANGE,
+    CUSTOMER_SPAWN_RETRY_DELAY,
+    CUSTOMER_SPEED_TILES_PER_S,
+    MAX_CUSTOMERS_ACTIVE,
+    MAX_CUSTOMERS_SPAWNED_PER_DAY,
+    MAX_CUSTOMER_SPAWNS_PER_FRAME,
+)
 from game.core.scene import Scene
-from game.sim.economy import daily_customer_count, choose_purchase
+from game.sim.economy import customer_spawn_interval, choose_purchase
 from game.sim.economy_rules import effective_sale_price, xp_from_sale
 from game.sim.skill_tree import get_default_skill_tree
 from game.sim.economy_rules import fixture_cost
@@ -34,6 +44,7 @@ class Customer:
     sprite_id: int = 0
     purchase: tuple[str, str] | None = None
     done: bool = False
+    wait_s: float = 0.0
 
 
 class ShopScene(Scene):
@@ -1093,8 +1104,15 @@ class ShopScene(Scene):
         self._autosaved_this_night = False
         self.customers.clear()
         self.spawned = 0
-        count = daily_customer_count(self.app.state.day, self.app.rng)
-        self.customer_schedule = [i * (self.day_duration / max(1, count)) for i in range(count)]
+        interval = float(customer_spawn_interval(self.app.state.day))
+        # Build a schedule based on target interval and hard safety cap.
+        sched: list[float] = []
+        t = interval  # first customer doesn't spawn instantly
+        max_spawns = int(MAX_CUSTOMERS_SPAWNED_PER_DAY)
+        while t < self.day_duration and len(sched) < max_spawns:
+            sched.append(float(t))
+            t += interval
+        self.customer_schedule = sched
         if reset_summary:
             self.app.state.last_summary = self.app.state.last_summary.__class__()
 
@@ -1265,14 +1283,35 @@ class ShopScene(Scene):
                 self.app.save_game()
 
     def _update_day(self, dt: float) -> None:
-        # phase_timer is the authoritative time for day/night.
-        while self.spawned < len(self.customer_schedule) and self.phase_timer >= self.customer_schedule[self.spawned]:
-            self._spawn_customer()
-            self.spawned += 1
+        # Move existing customers first (may reduce active count as they exit).
+        active = 0
         for customer in self.customers:
             if customer.done:
                 continue
             self._move_customer(customer, dt)
+            if not customer.done:
+                active += 1
+
+        # Spawn pacing with caps and retry delay to avoid per-frame spawn attempts at cap.
+        if self.spawned < len(self.customer_schedule) and self.phase_timer >= self.customer_schedule[self.spawned]:
+            spawns = 0
+            while (
+                spawns < int(MAX_CUSTOMER_SPAWNS_PER_FRAME)
+                and self.spawned < len(self.customer_schedule)
+                and self.phase_timer >= self.customer_schedule[self.spawned]
+            ):
+                if active >= int(MAX_CUSTOMERS_ACTIVE):
+                    # Push the next scheduled attempt forward slightly.
+                    self.customer_schedule[self.spawned] = float(self.phase_timer + float(CUSTOMER_SPAWN_RETRY_DELAY))
+                    break
+                did = self._spawn_customer()
+                if not did:
+                    # Can't spawn right now (e.g., no shelves). Delay retry.
+                    self.customer_schedule[self.spawned] = float(self.phase_timer + float(CUSTOMER_SPAWN_RETRY_DELAY))
+                    break
+                self.spawned += 1
+                spawns += 1
+                active += 1
 
         # Staff actor update (auto-restock) - scan throttled inside update_staff.
         # Compute blocked tiles cache only when shop objects count changes.
@@ -1294,11 +1333,11 @@ class ShopScene(Scene):
             self._refresh_shelves()
             self._build_buttons()
 
-    def _spawn_customer(self) -> None:
+    def _spawn_customer(self) -> bool:
         entrance = pygame.Vector2(1.5 * self.tile_px, (SHOP_GRID[1] - 1) * self.tile_px)
         shelves = self.app.state.shop_layout.shelf_tiles()
         if not shelves:
-            return
+            return False
         shelf = self.app.rng.choice(shelves)
         target = pygame.Vector2((shelf[0] + 0.5) * self.tile_px, (shelf[1] + 0.5) * self.tile_px)
         # Assign a random customer sprite
@@ -1306,6 +1345,7 @@ class ShopScene(Scene):
         sprite_id = shop_assets.get_random_customer_id(self.app.rng)
         self.customers.append(Customer(entrance, target, "to_shelf", sprite_id))
         self.app.state.last_summary.customers += 1
+        return True
 
     def _find_object_tile(self, kind: str) -> tuple[int, int] | None:
         for obj in self.app.state.shop_layout.objects:
@@ -1314,17 +1354,28 @@ class ShopScene(Scene):
         return None
 
     def _move_customer(self, customer: Customer, dt: float) -> None:
-        speed = 80.0
+        # Wait (browse/pay) timers.
+        if customer.wait_s > 0.0:
+            customer.wait_s = max(0.0, customer.wait_s - dt)
+            return
+
+        speed = float(self.tile_px) * float(CUSTOMER_SPEED_TILES_PER_S)
         direction = customer.target - customer.pos
         if direction.length() > 1:
             customer.pos += direction.normalize() * speed * dt
             return
         if customer.state == "to_shelf":
+            # Browse a bit before walking to the counter.
+            customer.wait_s = float(self.app.rng.uniform(*CUSTOMER_BROWSE_TIME_RANGE))
             counter = self._find_object_tile("counter") or (10, 7)
             customer.target = pygame.Vector2((counter[0] + 0.5) * self.tile_px, (counter[1] + 0.5) * self.tile_px)
             customer.state = "to_counter"
             customer.purchase = self._choose_shelf_purchase()
         elif customer.state == "to_counter":
+            # Pause briefly at counter (pays) before purchase is processed.
+            customer.wait_s = float(self.app.rng.uniform(*CUSTOMER_PAY_TIME_RANGE))
+            customer.state = "paying"
+        elif customer.state == "paying":
             if customer.purchase:
                 self._process_purchase(customer.purchase)
             exit_pos = pygame.Vector2(1.5 * self.tile_px, (SHOP_GRID[1] - 0.5) * self.tile_px)

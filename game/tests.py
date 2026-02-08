@@ -17,6 +17,12 @@ from game.sim.economy_rules import apply_sell_price_pct, xp_from_sale, xp_from_b
 from game.sim.skill_tree import Modifiers
 from game.sim.economy_rules import effective_sale_price
 from game.sim.skill_tree import get_default_skill_tree
+from game.sim.economy import customer_spawn_interval
+from game.config import (
+    CUSTOMER_SPAWN_INTERVAL_MIN,
+    CUSTOMER_SPAWN_INTERVAL_START,
+    CUSTOMER_SPAWN_RAMP_DAYS,
+)
 
 
 def test_pack_generation() -> None:
@@ -346,6 +352,20 @@ def test_sale_applies_sell_modifier_consistently() -> None:
     assert app.state.money - before_money == expected
 
 
+def test_customer_spawn_interval_ramp() -> None:
+    start = float(CUSTOMER_SPAWN_INTERVAL_START)
+    end = float(CUSTOMER_SPAWN_INTERVAL_MIN)
+    assert customer_spawn_interval(1) == start
+    assert customer_spawn_interval(1 + int(CUSTOMER_SPAWN_RAMP_DAYS) * 2) == end
+    # Monotonic non-increasing across ramp window.
+    prev = customer_spawn_interval(1)
+    for d in range(2, 2 + int(CUSTOMER_SPAWN_RAMP_DAYS) + 3):
+        cur = customer_spawn_interval(d)
+        assert cur <= prev + 1e-9
+        assert end - 1e-9 <= cur <= start + 1e-9
+        prev = cur
+
+
 def run() -> None:
     test_pack_generation()
     test_deck_rules()
@@ -362,6 +382,7 @@ def run() -> None:
     test_economy_rules_price_and_xp_math()
     test_save_backcompat_defaults_progression_skills_fixtures()
     test_sale_applies_sell_modifier_consistently()
+    test_customer_spawn_interval_ramp()
     print("Sanity checks passed.")
 
 

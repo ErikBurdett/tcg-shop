@@ -47,3 +47,22 @@ DEFAULT_PRICES = Prices()
 START_MONEY = 2000
 START_DAY = 1
 START_PACKS = 3
+
+# --- Customer pacing / performance safeguards ---
+# Spawn interval ramps from START -> MIN over RAMP_DAYS (inclusive-ish).
+CUSTOMER_SPAWN_INTERVAL_START = 7.0
+CUSTOMER_SPAWN_INTERVAL_MIN = 4.2
+CUSTOMER_SPAWN_RAMP_DAYS = 14
+
+# Hard caps to keep gameplay calm + avoid update spikes.
+MAX_CUSTOMERS_ACTIVE = 10
+MAX_CUSTOMERS_SPAWNED_PER_DAY = 14
+MAX_CUSTOMER_SPAWNS_PER_FRAME = 1
+
+# If at cap or cannot spawn, delay the next attempt by this many seconds.
+CUSTOMER_SPAWN_RETRY_DELAY = 0.75
+
+# Visit pacing (dt-based; scaled by current tile size).
+CUSTOMER_SPEED_TILES_PER_S = 1.4
+CUSTOMER_BROWSE_TIME_RANGE = (0.6, 1.4)
+CUSTOMER_PAY_TIME_RANGE = (0.25, 0.7)
