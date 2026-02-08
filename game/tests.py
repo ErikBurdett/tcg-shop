@@ -12,6 +12,7 @@ from game.config import Prices
 from game.sim.inventory import Inventory, InventoryOrder
 from game.sim.shop import ShopLayout
 from game.sim.progression import MAX_LEVEL, PlayerProgression, xp_to_next
+from game.sim.skill_tree import SkillTreeState, default_skill_tree
 
 
 def test_pack_generation() -> None:
@@ -219,6 +220,44 @@ def test_progression_curve_monotonic_and_levelups() -> None:
     assert p2.xp == 999999  # unchanged by add_xp at cap; normalization is in from_dict
 
 
+def test_skill_tree_validation_and_unlock_rules() -> None:
+    tree = default_skill_tree()
+    prog = PlayerProgression(level=1, xp=0, skill_points=0)
+    skills = SkillTreeState()
+
+    # Can't rank up without points.
+    ok, _ = skills.can_rank_up(tree, "haggle", prog)
+    assert ok is False
+
+    # Give points + rank up.
+    prog.skill_points = 5
+    ok2, _ = skills.can_rank_up(tree, "haggle", prog)
+    assert ok2 is True
+    assert skills.rank_up(tree, "haggle", prog) is True
+    assert skills.rank("haggle") == 1
+    assert prog.skill_points == 4
+
+    # Prereq + level gating.
+    ok3, _ = skills.can_rank_up(tree, "premium_display", prog)
+    assert ok3 is False  # needs level + prereq ranks
+    prog.level = 6
+    # still needs haggle rank 3
+    ok4, _ = skills.can_rank_up(tree, "premium_display", prog)
+    assert ok4 is False
+    # rank haggle to 3
+    skills.rank_up(tree, "haggle", prog)
+    skills.rank_up(tree, "haggle", prog)
+    ok5, _ = skills.can_rank_up(tree, "premium_display", prog)
+    assert ok5 is True
+
+    # Modifiers caching should change only after rank-up.
+    m1 = skills.modifiers(tree)
+    assert m1.sell_price_pct > 0.0
+    # Calling again returns cached object contents (value equality).
+    m2 = skills.modifiers(tree)
+    assert m2 == m1
+
+
 def run() -> None:
     test_pack_generation()
     test_deck_rules()
@@ -231,6 +270,7 @@ def run() -> None:
     test_day_night_pause_smoke()
     test_staff_choose_restock_plan()
     test_progression_curve_monotonic_and_levelups()
+    test_skill_tree_validation_and_unlock_rules()
     print("Sanity checks passed.")
 
 
