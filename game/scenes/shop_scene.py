@@ -7,6 +7,8 @@ import pygame
 from game.config import SHOP_GRID, TILE_SIZE
 from game.core.scene import Scene
 from game.sim.economy import daily_customer_count, choose_purchase
+from game.sim.economy_rules import effective_sale_price, xp_from_sale
+from game.sim.skill_tree import get_default_skill_tree
 from game.ui.widgets import Button, Panel, ScrollList, ScrollItem
 from game.sim.inventory import RARITIES, InventoryOrder
 from game.cards.card_defs import CARD_INDEX
@@ -1135,14 +1137,9 @@ class ShopScene(Scene):
         stock = self.app.state.shop_layout.shelf_stocks.get(shelf_key)
         if not stock or stock.qty <= 0:
             return
-        if product == "booster":
-            price = prices.booster
-        elif product == "deck":
-            price = prices.deck
-        elif product.startswith("single_"):
-            rarity = product.replace("single_", "")
-            price = getattr(prices, f"single_{rarity}")
-        else:
+        mods = self.app.state.skills.modifiers(get_default_skill_tree())
+        price = effective_sale_price(prices, product, mods)
+        if price is None:
             return
         if product.startswith("single_") and getattr(stock, "cards", None):
             if stock.cards:
@@ -1161,6 +1158,7 @@ class ShopScene(Scene):
         self.app.state.money += price
         self.app.state.last_summary.revenue += price
         self.app.state.last_summary.units_sold += 1
+        self.app.state.progression.add_xp(xp_from_sale(price, mods))
 
     def _tile_at_pos(self, pos: tuple[int, int]) -> tuple[int, int] | None:
         if not self._shop_inner_rect().collidepoint(pos):

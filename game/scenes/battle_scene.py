@@ -8,6 +8,8 @@ from game.cards.card_defs import CARD_INDEX
 from game.ui.widgets import Button, Panel, Tooltip
 from game.assets import get_asset_manager
 from game.ui.effects import draw_glow_border
+from game.sim.economy_rules import xp_from_battle_win
+from game.sim.skill_tree import get_default_skill_tree
 
 
 class BattleScene(Scene):
@@ -51,6 +53,8 @@ class BattleScene(Scene):
         if winner == "player":
             self.app.state.money += 15
             self.app.state.inventory.booster_packs += 1
+            mods = self.app.state.skills.modifiers(get_default_skill_tree())
+            self.app.state.progression.add_xp(xp_from_battle_win(mods))
         self.app.save_game()
         results_scene = self.app.scenes["results"]
         results_scene.set_result(winner == "player")

@@ -418,3 +418,14 @@ def default_skill_tree() -> SkillTreeDef:
     tree.validate()
     return tree
 
+
+_DEFAULT_TREE: SkillTreeDef | None = None
+
+
+def get_default_skill_tree() -> SkillTreeDef:
+    """Return a cached default skill tree definition."""
+    global _DEFAULT_TREE
+    if _DEFAULT_TREE is None:
+        _DEFAULT_TREE = default_skill_tree()
+    return _DEFAULT_TREE
+

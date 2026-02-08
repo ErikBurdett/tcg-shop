@@ -13,6 +13,8 @@ from game.sim.inventory import Inventory, InventoryOrder
 from game.sim.shop import ShopLayout
 from game.sim.progression import MAX_LEVEL, PlayerProgression, xp_to_next
 from game.sim.skill_tree import SkillTreeState, default_skill_tree
+from game.sim.economy_rules import apply_sell_price_pct, xp_from_sale, xp_from_battle_win
+from game.sim.skill_tree import Modifiers
 
 
 def test_pack_generation() -> None:
@@ -258,6 +260,21 @@ def test_skill_tree_validation_and_unlock_rules() -> None:
     assert m2 == m1
 
 
+def test_economy_rules_price_and_xp_math() -> None:
+    assert apply_sell_price_pct(10, 0.0) == 10
+    assert apply_sell_price_pct(10, 0.10) == 11
+    assert apply_sell_price_pct(1, -0.99) == 1
+
+    # XP math should be non-negative and scale with modifiers.
+    tree = default_skill_tree()
+    skills = SkillTreeState(ranks={"haggle": 2})
+    prog = PlayerProgression(level=10, xp=0, skill_points=999)
+    assert skills.rank_up(tree, "local_reputation", prog) is True
+    mods = skills.modifiers(tree)
+    assert xp_from_sale(10, mods) >= xp_from_sale(10, Modifiers())
+    assert xp_from_battle_win(mods) >= xp_from_battle_win(Modifiers())
+
+
 def run() -> None:
     test_pack_generation()
     test_deck_rules()
@@ -271,6 +288,7 @@ def run() -> None:
     test_staff_choose_restock_plan()
     test_progression_curve_monotonic_and_levelups()
     test_skill_tree_validation_and_unlock_rules()
+    test_economy_rules_price_and_xp_math()
     print("Sanity checks passed.")
 
 
