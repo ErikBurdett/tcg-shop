@@ -28,6 +28,8 @@ from game.scenes.deck_build_scene import DeckBuildScene
 from game.scenes.battle_scene import BattleScene
 from game.scenes.results_scene import ResultsScene
 from game.assets import get_asset_manager
+from game.sim.economy_rules import fixture_cost
+from game.sim.skill_tree import Modifiers, get_default_skill_tree
 
 
 @dataclass
@@ -202,6 +204,53 @@ class GameApp:
             else:
                 remaining.append(order)
         self.state.pending_orders = remaining
+
+    def modifiers(self) -> Modifiers:
+        """Return cached aggregated modifiers from the skill tree."""
+        return self.state.skills.modifiers(get_default_skill_tree())
+
+    def try_buy_fixture(self, kind: str) -> bool:
+        """Attempt to buy a fixture into the player's fixture inventory."""
+        cost = fixture_cost(kind, self.modifiers())
+        if cost is None:
+            return False
+        if self.state.money < cost:
+            return False
+        self.state.money -= cost
+        if kind == "shelf":
+            self.state.fixtures.shelves += 1
+            return True
+        if kind == "counter":
+            self.state.fixtures.counters += 1
+            return True
+        if kind == "poster":
+            self.state.fixtures.posters += 1
+            return True
+        return False
+
+    def try_place_object(self, kind: str, tile: tuple[int, int]) -> bool:
+        """Attempt to place an object on the shop grid.
+
+        For fixtures (shelf/counter/poster), this consumes an owned fixture from `state.fixtures`.
+        If placement fails, the consumed fixture is refunded.
+        """
+        needs_fixture = kind in {"shelf", "counter", "poster"}
+        if needs_fixture:
+            if not self.state.fixtures.consume_for_place(kind):
+                return False
+        before = len(self.state.shop_layout.objects)
+        self.state.shop_layout.place(kind, tile)
+        after = len(self.state.shop_layout.objects)
+        placed = after > before
+        if not placed and needs_fixture:
+            # Refund on failure.
+            if kind == "shelf":
+                self.state.fixtures.shelves += 1
+            elif kind == "counter":
+                self.state.fixtures.counters += 1
+            elif kind == "poster":
+                self.state.fixtures.posters += 1
+        return placed
 
     def run(self) -> None:
         while self.running:

@@ -9,6 +9,7 @@ from game.core.scene import Scene
 from game.sim.economy import daily_customer_count, choose_purchase
 from game.sim.economy_rules import effective_sale_price, xp_from_sale
 from game.sim.skill_tree import get_default_skill_tree
+from game.sim.economy_rules import fixture_cost
 from game.ui.widgets import Button, Panel, ScrollList, ScrollItem
 from game.sim.inventory import RARITIES, InventoryOrder
 from game.cards.card_defs import CARD_INDEX
@@ -401,10 +402,42 @@ class ShopScene(Scene):
         if self.current_tab == "shop":
             x = self.order_panel.rect.x + 20
             y = self.order_panel.rect.y + 40
+            inv = self.app.state.fixtures
+            mods = self.app.state.skills.modifiers(get_default_skill_tree())
+            shelf_cost = fixture_cost("shelf", mods) or 0
+            counter_cost = fixture_cost("counter", mods) or 0
+            poster_cost = fixture_cost("poster", mods) or 0
             self.buttons = [
-                Button(pygame.Rect(x, y, button_width, 30), "Shelf", lambda: self._set_object("shelf")),
-                Button(pygame.Rect(x, y + 36, button_width, 30), "Counter", lambda: self._set_object("counter")),
-                Button(pygame.Rect(x, y + 72, button_width, 30), "Poster", lambda: self._set_object("poster")),
+                Button(
+                    pygame.Rect(x, y, button_width, 30),
+                    f"Place Shelf (owned {inv.shelves})",
+                    lambda: self._set_object("shelf"),
+                ),
+                Button(
+                    pygame.Rect(x, y + 36, button_width, 30),
+                    f"Place Counter (owned {inv.counters})",
+                    lambda: self._set_object("counter"),
+                ),
+                Button(
+                    pygame.Rect(x, y + 72, button_width, 30),
+                    f"Place Poster (owned {inv.posters})",
+                    lambda: self._set_object("poster"),
+                ),
+                Button(
+                    pygame.Rect(x, y + 118, button_width, 30),
+                    f"Buy Shelf (+1) ${shelf_cost}",
+                    lambda: self.app.try_buy_fixture("shelf"),
+                ),
+                Button(
+                    pygame.Rect(x, y + 154, button_width, 30),
+                    f"Buy Counter (+1) ${counter_cost}",
+                    lambda: self.app.try_buy_fixture("counter"),
+                ),
+                Button(
+                    pygame.Rect(x, y + 190, button_width, 30),
+                    f"Buy Poster (+1) ${poster_cost}",
+                    lambda: self.app.try_buy_fixture("poster"),
+                ),
             ]
         elif self.current_tab == "packs":
             x = self.order_panel.rect.x + 20
@@ -1010,7 +1043,7 @@ class ShopScene(Scene):
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             tile = self._tile_at_pos(event.pos)
             if tile:
-                self.app.state.shop_layout.place(self.selected_object, tile)
+                self.app.try_place_object(self.selected_object, tile)
 
     def update(self, dt: float) -> None:
         super().update(dt)

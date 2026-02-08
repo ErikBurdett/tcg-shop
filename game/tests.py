@@ -275,6 +275,34 @@ def test_economy_rules_price_and_xp_math() -> None:
     assert xp_from_battle_win(mods) >= xp_from_battle_win(Modifiers())
 
 
+def test_save_backcompat_defaults_progression_skills_fixtures() -> None:
+    # Old saves won't have these keys; loading should default cleanly.
+    from game.core.app import GameState
+    from game.config import Prices
+    from game.sim.inventory import Inventory
+    from game.cards.collection import CardCollection
+    from game.cards.deck import Deck
+    from game.sim.shop import ShopLayout
+
+    d = {
+        "money": 100,
+        "day": 1,
+        "time_seconds": 0.0,
+        "prices": Prices().__dict__,
+        "inventory": Inventory().to_dict(),
+        "collection": CardCollection().to_dict(),
+        "deck": Deck().to_dict(),
+        "shop_layout": ShopLayout().to_dict(),
+        "pending_orders": [],
+        "last_summary": {"revenue": 0, "profit": 0, "units_sold": 0, "customers": 0},
+        # no progression/skills/fixtures
+    }
+    s = GameState.from_dict(d)
+    assert s.progression.level == 1
+    assert s.skills.rank("haggle") == 0
+    assert s.fixtures.shelves == 0
+
+
 def run() -> None:
     test_pack_generation()
     test_deck_rules()
@@ -289,6 +317,7 @@ def run() -> None:
     test_progression_curve_monotonic_and_levelups()
     test_skill_tree_validation_and_unlock_rules()
     test_economy_rules_price_and_xp_math()
+    test_save_backcompat_defaults_progression_skills_fixtures()
     print("Sanity checks passed.")
 
 
