@@ -46,12 +46,11 @@ class ManageScene(Scene):
                 ("Legendary", "single_legendary"),
             ]
         ):
-            self.buttons.append(
-                Button(pygame.Rect(px + 220, py + idx * 36, 28, 28), "-", lambda a=attr: self._adjust_price(a, -1))
-            )
-            self.buttons.append(
-                Button(pygame.Rect(px + 260, py + idx * 36, 28, 28), "+", lambda a=attr: self._adjust_price(a, 1))
-            )
+            minus = Button(pygame.Rect(px + 220, py + idx * 36, 28, 28), "-", lambda a=attr: self._adjust_price(a, -1))
+            plus = Button(pygame.Rect(px + 260, py + idx * 36, 28, 28), "+", lambda a=attr: self._adjust_price(a, 1))
+            minus.tooltip = f"Decrease {label} retail price by $1."
+            plus.tooltip = f"Increase {label} retail price by $1."
+            self.buttons.extend([minus, plus])
         rx = self.reorder_panel.rect.x + 20
         ry = self.reorder_panel.rect.y + 50
         booster_qty = 12
@@ -61,19 +60,21 @@ class ManageScene(Scene):
         self.buttons.append(
             Button(pygame.Rect(rx, ry, 280, 32), f"Order {booster_qty} Boosters (${booster_cost})", self._order_boosters)
         )
+        self.buttons[-1].tooltip = "Order boosters (delivers after ~30 seconds)."
         self.buttons.append(
             Button(pygame.Rect(rx, ry + 40, 280, 32), f"Order {deck_qty} Decks (${deck_cost})", self._order_decks)
         )
+        self.buttons[-1].tooltip = "Order decks (delivers after ~30 seconds)."
         for idx, rarity in enumerate(RARITIES):
             singles_qty = 10
             singles_cost = self._wholesale_cost(f"single_{rarity}", singles_qty)
-            self.buttons.append(
-                Button(
-                    pygame.Rect(rx, ry + 88 + idx * 34, 280, 30),
-                    f"Order {singles_qty} {rarity.title()} Singles (${singles_cost})",
-                    lambda r=rarity: self._order_singles(r),
-                )
+            btn = Button(
+                pygame.Rect(rx, ry + 88 + idx * 34, 280, 30),
+                f"Order {singles_qty} {rarity.title()} Singles (${singles_cost})",
+                lambda r=rarity: self._order_singles(r),
             )
+            btn.tooltip = "Order singles by rarity (delivers after ~30 seconds)."
+            self.buttons.append(btn)
         sx = self.shelf_panel.rect.x + 520
         sy = self.shelf_panel.rect.y + 50
         self.buttons.extend(
@@ -85,6 +86,17 @@ class ManageScene(Scene):
                 Button(pygame.Rect(sx, sy + 90, 160, 30), "Fill Shelf", self._fill_shelf),
             ]
         )
+        for b in self.buttons:
+            if b.text == "Prev Product":
+                b.tooltip = "Select previous product type for stocking."
+            elif b.text == "Next Product":
+                b.tooltip = "Select next product type for stocking."
+            elif b.text == "Stock 1":
+                b.tooltip = "Stock 1 unit to the selected shelf."
+            elif b.text == "Stock 5":
+                b.tooltip = "Stock 5 units to the selected shelf."
+            elif b.text == "Fill Shelf":
+                b.tooltip = "Fill the selected shelf to capacity."
 
     def _adjust_price(self, attr: str, delta: int) -> None:
         current = getattr(self.app.state.prices, attr)
