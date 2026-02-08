@@ -14,6 +14,9 @@ from game.core.debug_overlay import DebugOverlay
 from game.ui.theme import Theme
 from game.sim.inventory import Inventory, InventoryOrder
 from game.sim.shop import ShopLayout
+from game.sim.progression import PlayerProgression
+from game.sim.skill_tree import SkillTreeState, default_skill_tree
+from game.sim.fixtures import FixtureInventory
 from game.cards.collection import CardCollection
 from game.cards.deck import Deck
 from game.cards.card_defs import get_all_cards
@@ -47,6 +50,9 @@ class GameState:
     shop_layout: ShopLayout
     pending_orders: list[InventoryOrder]
     last_summary: DaySummary
+    progression: PlayerProgression
+    skills: SkillTreeState
+    fixtures: FixtureInventory
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -60,6 +66,9 @@ class GameState:
             "shop_layout": self.shop_layout.to_dict(),
             "pending_orders": [order.to_dict() for order in self.pending_orders],
             "last_summary": self.last_summary.__dict__,
+            "progression": self.progression.to_dict(),
+            "skills": self.skills.to_dict(),
+            "fixtures": self.fixtures.to_dict(),
         }
 
     @classmethod
@@ -75,6 +84,9 @@ class GameState:
             shop_layout=ShopLayout.from_dict(data["shop_layout"]),
             pending_orders=[InventoryOrder.from_dict(d) for d in data.get("pending_orders", [])],
             last_summary=DaySummary(**data["last_summary"]),
+            progression=PlayerProgression.from_dict(data.get("progression")),
+            skills=SkillTreeState.from_dict(data.get("skills")),
+            fixtures=FixtureInventory.from_dict(data.get("fixtures")),
         )
 
 
@@ -113,6 +125,8 @@ class GameApp:
         deck = Deck()
         inventory = Inventory(booster_packs=START_PACKS)
         layout = ShopLayout()
+        # Initialize skills (definition is immutable; state stores ranks only).
+        _ = default_skill_tree()
         return GameState(
             money=START_MONEY,
             day=START_DAY,
@@ -124,6 +138,9 @@ class GameApp:
             shop_layout=layout,
             pending_orders=[],
             last_summary=DaySummary(),
+            progression=PlayerProgression(),
+            skills=SkillTreeState(),
+            fixtures=FixtureInventory(),
         )
 
     def _build_scenes(self) -> None:
