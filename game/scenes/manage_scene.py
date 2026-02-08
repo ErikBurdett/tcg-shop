@@ -7,6 +7,7 @@ from game.ui.widgets import Button, Panel, ScrollList, ScrollItem
 from game.sim.inventory import InventoryOrder, RARITIES
 from game.sim.economy_rules import effective_sale_price
 from game.sim.skill_tree import get_default_skill_tree
+from game.cards.card_defs import CARD_INDEX
 
 
 class ManageScene(Scene):
@@ -142,9 +143,24 @@ class ManageScene(Scene):
     def _refresh_shelves(self) -> None:
         layout = self.app.state.shop_layout
         items: list[ScrollItem] = []
+        prices = self.app.state.prices
+        mods = self.app.state.skills.modifiers(get_default_skill_tree())
         for key, stock in layout.shelf_stocks.items():
             x, y = key.split(",")
-            label = f"Shelf ({x},{y}) - {stock.product} x{stock.qty}"
+            value = 0
+            if stock.qty > 0 and getattr(stock, "cards", None):
+                for cid in stock.cards:
+                    card = CARD_INDEX.get(cid)
+                    if not card:
+                        continue
+                    p = effective_sale_price(prices, f"single_{card.rarity}", mods)
+                    if p:
+                        value += int(p)
+            elif stock.qty > 0:
+                p = effective_sale_price(prices, stock.product, mods)
+                if p:
+                    value = int(p) * int(stock.qty)
+            label = f"Shelf ({x},{y}) - {stock.product} x{stock.qty} | ${value}"
             items.append(ScrollItem(key, label, stock))
         self.shelf_list.items = items
         self.shelf_list.on_select = self._select_shelf

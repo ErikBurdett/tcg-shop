@@ -31,6 +31,8 @@ from game.assets.shop import get_shop_asset_manager
 from game.ui.effects import draw_glow_border
 from game.ui.layout import anchor_rect
 from game.sim.actors import Staff, notify_shelf_change, update_staff
+from game.config import Prices
+from game.sim.skill_tree import Modifiers
 
 MINI_GRID = (14, 8)
 MINI_TILE = 42
@@ -88,6 +90,7 @@ class ShopScene(Scene):
         self.deck_panel = Panel(pygame.Rect(0, 0, 320, 420), "Deck")
         self.skills_panel = Panel(pygame.Rect(0, 0, 720, 560), "Skills")
         self.shelf_list = ScrollList(pygame.Rect(0, 0, 100, 100), [])
+        self._shelf_value_cache: dict[str, int] = {}
         self.selected_shelf_key: str | None = None
         self.product_index = 0
         self.products = [
@@ -911,16 +914,44 @@ class ShopScene(Scene):
 
     def _refresh_shelves(self) -> None:
         layout = self.app.state.shop_layout
+        prices = self.app.state.prices
+        mods = self.app.state.skills.modifiers(get_default_skill_tree())
+        # Cache derived shelf values for the current pricing/modifiers.
+        self._shelf_value_cache: dict[str, int] = {}
         items: list[ScrollItem] = []
         for key, stock in layout.shelf_stocks.items():
             x, y = key.split(",")
             listed = ""
             if getattr(stock, "cards", None):
                 listed = " (listed)"
-            label = f"Shelf ({x},{y}) - {stock.product} x{stock.qty}{listed}"
+            value = self._shelf_total_value(stock, prices=prices, mods=mods)
+            self._shelf_value_cache[key] = value
+            label = f"Shelf ({x},{y}) - {stock.product} x{stock.qty}{listed} | ${value}"
             items.append(ScrollItem(key, label, stock))
         self.shelf_list.items = items
         self.shelf_list.on_select = self._select_shelf
+
+    def _shelf_total_value(self, stock: "ShelfStock", *, prices: "Prices", mods: "Modifiers") -> int:
+        """Compute total sell value for a shelf (uses effective sell prices + skills)."""
+        if stock.qty <= 0:
+            return 0
+        # Listed cards: sum by each card's rarity pricing.
+        if getattr(stock, "cards", None):
+            total = 0
+            for cid in stock.cards:
+                card = CARD_INDEX.get(cid)
+                if not card:
+                    continue
+                product = f"single_{card.rarity}"
+                p = effective_sale_price(prices, product, mods)
+                if p:
+                    total += int(p)
+            return int(total)
+        # Bulk products
+        p = effective_sale_price(prices, stock.product, mods)
+        if not p:
+            return 0
+        return int(p) * int(stock.qty)
 
     def _select_shelf(self, item: ScrollItem) -> None:
         self.selected_shelf_key = item.key
@@ -2040,6 +2071,17 @@ class ShopScene(Scene):
                     self.theme.colors.muted,
                 )
                 surface.blit(prod_line, (self.inventory_panel.rect.x + 20, y))
+                y += 18
+                # Total shelf value using effective sell prices.
+                prices = self.app.state.prices
+                mods = self.app.state.skills.modifiers(get_default_skill_tree())
+                value = self._shelf_total_value(stock, prices=prices, mods=mods)
+                val_line = self.theme.render_text(
+                    self.theme.font_small,
+                    f"Total value: ${value}",
+                    self.theme.colors.muted,
+                )
+                surface.blit(val_line, (self.inventory_panel.rect.x + 20, y))
                 y += 18
                 if getattr(stock, "cards", None):
                     if stock.cards:

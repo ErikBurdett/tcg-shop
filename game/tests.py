@@ -252,6 +252,7 @@ def test_progression_curve_monotonic_and_levelups() -> None:
     total = sum(xp_to_next(lvl) for lvl in range(1, 15))
     res = p.add_xp(total)
     assert res.gained_levels >= 14
+    assert res.gained_skill_points == res.gained_levels
     assert p.level >= 15
     # Skill points should increase with levels.
     assert p.skill_points == (p.level - 1)
