@@ -56,6 +56,7 @@ class MenuScene(Scene):
             elif not info.exists:
                 label += "  (Empty)"
             btn = Button(pygame.Rect(x, y + i * (slot_h + gap), w, slot_h), label, lambda sid=info.slot_id: self._select_slot(sid))
+            btn.tooltip = "Select this save slot."
             self.buttons.append(btn)
 
         ay = y + len(slots) * (slot_h + gap) + 10
@@ -65,6 +66,11 @@ class MenuScene(Scene):
         ren_btn = Button(pygame.Rect(x, ay + 56, bw, 44), "Rename", self._toggle_rename)
         del_btn = Button(pygame.Rect(x + bw + gap, ay + 56, bw, 44), "Delete", self._delete_selected)
         exit_btn = Button(pygame.Rect(x, ay + 112, w, 44), "Exit", self._exit)
+        load_btn.tooltip = "Load the selected save slot."
+        new_btn.tooltip = "Start a new game in the selected slot."
+        ren_btn.tooltip = "Rename the selected slot."
+        del_btn.tooltip = "Delete the selected slot save file."
+        exit_btn.tooltip = "Quit the game."
         self.buttons.extend([load_btn, new_btn, ren_btn, del_btn, exit_btn])
 
         # Enable/disable based on slot state
@@ -226,3 +232,4 @@ class MenuScene(Scene):
 
         for button in self.buttons:
             button.draw(surface, self.theme)
+        self.draw_overlays(surface)

@@ -15,6 +15,8 @@ from game.sim.progression import MAX_LEVEL, PlayerProgression, xp_to_next
 from game.sim.skill_tree import SkillTreeState, default_skill_tree
 from game.sim.economy_rules import apply_sell_price_pct, xp_from_sale, xp_from_battle_win
 from game.sim.skill_tree import Modifiers
+from game.sim.economy_rules import effective_sale_price
+from game.sim.skill_tree import get_default_skill_tree
 
 
 def test_pack_generation() -> None:
@@ -303,6 +305,47 @@ def test_save_backcompat_defaults_progression_skills_fixtures() -> None:
     assert s.fixtures.shelves == 0
 
 
+def test_sale_applies_sell_modifier_consistently() -> None:
+    # Headless-friendly pygame init.
+    import os
+
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import pygame
+
+    pygame.init()
+    pygame.display.set_mode((1, 1))
+    screen = pygame.display.get_surface()
+    assert screen is not None
+
+    from game.core.app import GameApp
+
+    app = GameApp(screen)
+    tree = get_default_skill_tree()
+    # Give skill points and rank up Haggle to increase sell_price_pct.
+    app.state.progression.skill_points = 20
+    for _ in range(5):
+        assert app.state.skills.rank_up(tree, "haggle", app.state.progression) is True
+    mods = app.state.skills.modifiers(tree)
+    assert mods.sell_price_pct > 0.0
+
+    # Prepare a shelf sale.
+    tile = (2, 2)
+    app.state.shop_layout.place("shelf", tile)
+    key = app.state.shop_layout._key(tile)
+    stock = app.state.shop_layout.shelf_stocks[key]
+    stock.product = "booster"
+    stock.qty = 1
+    app.state.prices.booster = 10
+
+    expected = effective_sale_price(app.state.prices, "booster", mods)
+    assert expected is not None
+    before_money = app.state.money
+
+    shop = app.scenes["shop"]
+    shop._process_purchase((key, "booster"))  # type: ignore[attr-defined]
+    assert app.state.money - before_money == expected
+
+
 def run() -> None:
     test_pack_generation()
     test_deck_rules()
@@ -318,6 +361,7 @@ def run() -> None:
     test_skill_tree_validation_and_unlock_rules()
     test_economy_rules_price_and_xp_math()
     test_save_backcompat_defaults_progression_skills_fixtures()
+    test_sale_applies_sell_modifier_consistently()
     print("Sanity checks passed.")
 
 

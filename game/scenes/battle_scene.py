@@ -18,6 +18,7 @@ class BattleScene(Scene):
         self.panel = Panel(pygame.Rect(40, 80, 1200, 560), "Battle")
         self.tooltip = Tooltip()
         self.end_button = Button(pygame.Rect(1040, 620, 180, 36), "End Turn (Space)", self._end_turn)
+        self.end_button.tooltip = "End your turn. You can also press Space."
         self.battle: BattleState | None = None
         self.selected_attacker: int | None = None
 
@@ -38,8 +39,25 @@ class BattleScene(Scene):
             self._end_turn()
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.battle:
             self._handle_click(event.pos)
-        if event.type == pygame.MOUSEMOTION and self.battle:
-            self._update_tooltip(event.pos)
+
+    def _extra_tooltip_text(self, pos: tuple[int, int]) -> str | None:
+        if not self.battle:
+            return None
+        for idx, rect in enumerate(self._hand_rects()):
+            if rect.collidepoint(pos):
+                card = CARD_INDEX[self.battle.player_hand[idx]]
+                return f"{card.name} ({card.rarity.title()}) Cost {card.cost}"
+        for idx, rect in enumerate(self._board_rects('player')):
+            if rect.collidepoint(pos) and self.battle.player_board[idx]:
+                minion = self.battle.player_board[idx]
+                card = CARD_INDEX[minion.card_id]
+                return f"{card.name} {minion.attack}/{minion.health}"
+        for idx, rect in enumerate(self._board_rects('ai')):
+            if rect.collidepoint(pos) and self.battle.ai_board[idx]:
+                minion = self.battle.ai_board[idx]
+                card = CARD_INDEX[minion.card_id]
+                return f"{card.name} {minion.attack}/{minion.health}"
+        return None
 
     def update(self, dt: float) -> None:
         super().update(dt)
@@ -54,7 +72,9 @@ class BattleScene(Scene):
             self.app.state.money += 15
             self.app.state.inventory.booster_packs += 1
             mods = self.app.state.skills.modifiers(get_default_skill_tree())
-            self.app.state.progression.add_xp(xp_from_battle_win(mods))
+            res = self.app.state.progression.add_xp(xp_from_battle_win(mods))
+            if res.gained_levels > 0:
+                self.toasts.push(f"Level up! Lv {self.app.state.progression.level} (+{res.gained_skill_points} SP)")
         self.app.save_game()
         results_scene = self.app.scenes["results"]
         results_scene.set_result(winner == "player")
@@ -91,10 +111,11 @@ class BattleScene(Scene):
         if not self.battle:
             text = self.theme.font.render("Build a 20-card deck to battle.", True, self.theme.colors.text)
             surface.blit(text, (60, 140))
+            self.draw_overlays(surface)
             return
         self._draw_board(surface)
         self.end_button.draw(surface, self.theme)
-        self.tooltip.draw(surface, self.theme)
+        self.draw_overlays(surface)
 
     def _draw_board(self, surface: pygame.Surface) -> None:
         if not self.battle:
@@ -234,16 +255,4 @@ class BattleScene(Scene):
             "legendary": colors.card_legendary,
         }.get(rarity, colors.border)
 
-    def _update_tooltip(self, pos: tuple[int, int]) -> None:
-        self.tooltip.hide()
-        for idx, rect in enumerate(self._hand_rects()):
-            if rect.collidepoint(pos):
-                card = CARD_INDEX[self.battle.player_hand[idx]]
-                self.tooltip.show(f"{card.rarity.title()} Cost {card.cost}", pos)
-                return
-        for idx, rect in enumerate(self._board_rects("player")):
-            if rect.collidepoint(pos) and self.battle.player_board[idx]:
-                minion = self.battle.player_board[idx]
-                card = CARD_INDEX[minion.card_id]
-                self.tooltip.show(f"{card.name} {minion.attack}/{minion.health}", pos)
-                return
+    # Tooltip handling is provided via Scene._extra_tooltip_text.

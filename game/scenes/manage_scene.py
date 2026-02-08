@@ -5,6 +5,8 @@ import pygame
 from game.core.scene import Scene
 from game.ui.widgets import Button, Panel, ScrollList, ScrollItem
 from game.sim.inventory import InventoryOrder, RARITIES
+from game.sim.economy_rules import effective_sale_price
+from game.sim.skill_tree import get_default_skill_tree
 
 
 class ManageScene(Scene):
@@ -215,22 +217,25 @@ class ManageScene(Scene):
         self._draw_inventory(surface)
         self.shelf_list.draw(surface, self.theme)
         self._draw_shelf_status(surface)
+        self.draw_overlays(surface)
 
     def _draw_pricing(self, surface: pygame.Surface) -> None:
         px = self.pricing_panel.rect.x + 20
         py = self.pricing_panel.rect.y + 50
         prices = self.app.state.prices
+        mods = self.app.state.skills.modifiers(get_default_skill_tree())
         lines = [
-            ("Booster", prices.booster),
-            ("Deck", prices.deck),
-            ("Common", prices.single_common),
-            ("Uncommon", prices.single_uncommon),
-            ("Rare", prices.single_rare),
-            ("Epic", prices.single_epic),
-            ("Legendary", prices.single_legendary),
+            ("Booster", "booster", int(prices.booster)),
+            ("Deck", "deck", int(prices.deck)),
+            ("Common", "single_common", int(prices.single_common)),
+            ("Uncommon", "single_uncommon", int(prices.single_uncommon)),
+            ("Rare", "single_rare", int(prices.single_rare)),
+            ("Epic", "single_epic", int(prices.single_epic)),
+            ("Legendary", "single_legendary", int(prices.single_legendary)),
         ]
-        for idx, (label, value) in enumerate(lines):
-            text = self.theme.font_small.render(f"{label}: ${value}", True, self.theme.colors.text)
+        for idx, (label, product, base) in enumerate(lines):
+            eff = effective_sale_price(prices, product, mods) or base
+            text = self.theme.font_small.render(f"{label}: ${base} (sell ${eff})", True, self.theme.colors.text)
             surface.blit(text, (px, py + idx * 36))
 
     def _draw_inventory(self, surface: pygame.Surface) -> None:

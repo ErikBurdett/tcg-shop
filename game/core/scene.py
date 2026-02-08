@@ -5,8 +5,9 @@ from typing import Callable
 
 import pygame
 
-from game.ui.widgets import Button
+from game.ui.widgets import Button, Tooltip
 from game.ui.theme import Theme
+from game.ui.toasts import ToastManager
 
 
 @dataclass
@@ -34,6 +35,8 @@ class Scene:
         self.show_top_bar = True
         self.top_buttons: list[Button] = []
         self.day_buttons: list[Button] = []
+        self.tooltip = Tooltip()
+        self.toasts = ToastManager()
         self._last_screen_size = self.app.screen.get_size()
         self._build_top_bar()
         self._build_day_buttons()
@@ -74,6 +77,8 @@ class Scene:
         y = h - margin - btn_h
         start = Button(pygame.Rect(x, y, btn_w, btn_h), "Start Day", self._global_start_day)
         stop = Button(pygame.Rect(x + btn_w + gap, y, btn_w, btn_h), "Stop Day", self._global_stop_day)
+        start.tooltip = "Start/resume the day-night cycle. Customers will visit and buy from stocked shelves."
+        stop.tooltip = "Pause the day-night cycle. Time stops until you resume."
         self.day_buttons = [start, stop]
         self._sync_day_buttons()
 
@@ -117,6 +122,7 @@ class Scene:
             self.top_buttons.append(
                 Button(rect, tab.name, on_click=self._make_tab_handler(tab.scene_key))
             )
+            self.top_buttons[-1].tooltip = f"Go to: {tab.name}"
 
     def _make_tab_handler(self, key: str) -> Callable[[], None]:
         def handler() -> None:
@@ -144,6 +150,41 @@ class Scene:
         for button in self.day_buttons:
             button.update(dt)
         self._sync_day_buttons()
+        self._update_global_tooltip()
+        self.toasts.update(dt)
+
+    def _tooltip_sources(self) -> list[Button]:
+        """Buttons that participate in global tooltip discovery."""
+        out: list[Button] = []
+        if self.show_top_bar:
+            out.extend(self.top_buttons)
+        out.extend(self.day_buttons)
+        return out
+
+    def _extra_tooltip_text(self, pos: tuple[int, int]) -> str | None:
+        _ = pos
+        return None
+
+    def _update_global_tooltip(self) -> None:
+        pos = pygame.mouse.get_pos()
+        extra = self._extra_tooltip_text(pos)
+        if extra:
+            self.tooltip.show(extra, pos)
+            return
+        text: str | None = None
+        # Prefer the most recently created buttons (often visually on top).
+        for b in reversed(self._tooltip_sources()):
+            if not b.enabled:
+                continue
+            if not b.tooltip:
+                continue
+            if b.rect.collidepoint(pos):
+                text = b.tooltip
+                break
+        if text:
+            self.tooltip.show(text, pos)
+        else:
+            self.tooltip.hide()
 
     def draw(self, surface: pygame.Surface) -> None:
         if self.show_top_bar:
@@ -151,6 +192,11 @@ class Scene:
                 button.draw(surface, self.theme)
         for button in self.day_buttons:
             button.draw(surface, self.theme)
+
+    def draw_overlays(self, surface: pygame.Surface) -> None:
+        """Draw global overlays (toasts, tooltips) on top of all UI."""
+        self.toasts.draw(surface, self.theme)
+        self.tooltip.draw(surface, self.theme)
 
     def debug_lines(self) -> list[str]:
         """Optional per-scene debug overlay lines."""

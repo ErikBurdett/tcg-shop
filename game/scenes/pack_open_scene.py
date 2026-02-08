@@ -26,6 +26,8 @@ class PackOpenScene(Scene):
             Button(pygame.Rect(60, 620, 160, 36), "Open Pack", self.open_pack),
             Button(pygame.Rect(230, 620, 160, 36), "Reveal All", self.reveal_all),
         ]
+        self.buttons[0].tooltip = "Open a booster pack (consumes 1 from inventory)."
+        self.buttons[1].tooltip = "Reveal all cards in the current pack."
 
     def open_pack(self) -> None:
         if self.app.state.inventory.booster_packs <= 0:
@@ -44,8 +46,16 @@ class PackOpenScene(Scene):
         super().handle_event(event)
         for button in self.buttons:
             button.handle_event(event)
-        if event.type == pygame.MOUSEMOTION:
-            self._update_tooltip(event.pos)
+
+    def _extra_tooltip_text(self, pos: tuple[int, int]) -> str | None:
+        start_x = 100
+        y = 160
+        for idx, card_id in enumerate(self.revealed_cards[: self.reveal_index]):
+            rect = pygame.Rect(start_x + idx * 200, y, 160, 220)
+            if rect.collidepoint(pos):
+                card = CARD_INDEX[card_id]
+                return f"{card.name} ({card.rarity.title()}) Cost {card.cost}"
+        return None
 
     def update(self, dt: float) -> None:
         super().update(dt)
@@ -63,7 +73,7 @@ class PackOpenScene(Scene):
         for button in self.buttons:
             button.draw(surface, self.theme)
         self._draw_cards(surface)
-        self.tooltip.draw(surface, self.theme)
+        self.draw_overlays(surface)
 
     def _draw_cards(self, surface: pygame.Surface) -> None:
         start_x = 100
@@ -125,16 +135,7 @@ class PackOpenScene(Scene):
                 label = self.theme.font_small.render("?", True, self.theme.colors.muted)
                 surface.blit(label, label.get_rect(center=rect.center))
 
-    def _update_tooltip(self, pos: tuple[int, int]) -> None:
-        self.tooltip.hide()
-        start_x = 100
-        y = 160
-        for idx, card_id in enumerate(self.revealed_cards[: self.reveal_index]):
-            rect = pygame.Rect(start_x + idx * 200, y, 160, 220)
-            if rect.collidepoint(pos):
-                card = CARD_INDEX[card_id]
-                self.tooltip.show(f"{card.rarity.title()} - Cost {card.cost}", pos)
-                return
+    # Tooltip handling is provided via Scene._extra_tooltip_text.
 
     def _rarity_color(self, rarity: str) -> tuple[int, int, int]:
         colors = self.theme.colors

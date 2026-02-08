@@ -31,6 +31,16 @@ class DeckBuildScene(Scene):
             Button(pygame.Rect(620, 100, 90, 30), "Add", self._add_selected),
             Button(pygame.Rect(720, 100, 90, 30), "Remove", self._remove_selected),
         ]
+        tips = {
+            "All": "Show all cards in your collection.",
+            "Common": "Filter collection to common cards only.",
+            "Uncommon": "Filter collection to uncommon cards only.",
+            "Rare+": "Filter collection to rare/epic/legendary cards.",
+            "Add": "Add the selected collection card to your deck (if allowed).",
+            "Remove": "Remove the selected deck card.",
+        }
+        for b in self.buttons:
+            b.tooltip = tips.get(b.text)
 
     def _set_filter(self, rarity: str | None) -> None:
         self.filter_rarity = rarity
@@ -83,8 +93,19 @@ class DeckBuildScene(Scene):
             button.handle_event(event)
         self.collection_list.handle_event(event)
         self.deck_list.handle_event(event)
-        if event.type == pygame.MOUSEMOTION:
-            self._update_tooltip(event.pos)
+
+    def _extra_tooltip_text(self, pos: tuple[int, int]) -> str | None:
+        idx = self.collection_list._index_at_pos(pos)
+        if idx is not None:
+            card_id = self.collection_list.items[idx].key
+            card = CARD_INDEX[card_id]
+            return f"{card.name} ({card.rarity.title()}) Cost {card.cost}"
+        idx = self.deck_list._index_at_pos(pos)
+        if idx is not None:
+            card_id = self.deck_list.items[idx].key
+            card = CARD_INDEX[card_id]
+            return f"{card.name} {card.attack}/{card.health}"
+        return None
 
     def update(self, dt: float) -> None:
         super().update(dt)
@@ -99,22 +120,10 @@ class DeckBuildScene(Scene):
             button.draw(surface, self.theme)
         self.collection_list.draw(surface, self.theme)
         self.deck_list.draw(surface, self.theme)
-        self.tooltip.draw(surface, self.theme)
         deck_count = self.app.state.deck.total()
         status = "Ready" if self.app.state.deck.is_valid() else "Need 20 cards"
         text = self.theme.font_small.render(f"Deck: {deck_count}/20 - {status}", True, self.theme.colors.text)
         surface.blit(text, (620, 570))
+        self.draw_overlays(surface)
 
-    def _update_tooltip(self, pos: tuple[int, int]) -> None:
-        self.tooltip.hide()
-        idx = self.collection_list._index_at_pos(pos)
-        if idx is not None:
-            card_id = self.collection_list.items[idx].key
-            card = CARD_INDEX[card_id]
-            self.tooltip.show(f"{card.rarity.title()} Cost {card.cost}", pos)
-            return
-        idx = self.deck_list._index_at_pos(pos)
-        if idx is not None:
-            card_id = self.deck_list.items[idx].key
-            card = CARD_INDEX[card_id]
-            self.tooltip.show(f"{card.name} {card.attack}/{card.health}", pos)
+    # Tooltip handling is provided via Scene._extra_tooltip_text.

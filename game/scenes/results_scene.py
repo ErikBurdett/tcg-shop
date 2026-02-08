@@ -14,6 +14,8 @@ class ResultsScene(Scene):
             Button(pygame.Rect(420, 400, 180, 36), "Back to Menu", self._to_menu),
             Button(pygame.Rect(620, 400, 180, 36), "Battle Again", self._to_battle),
         ]
+        self.buttons[0].tooltip = "Return to the main menu."
+        self.buttons[1].tooltip = "Start another battle immediately."
         self.win = False
 
     def set_result(self, win: bool) -> None:
@@ -46,3 +48,4 @@ class ResultsScene(Scene):
         surface.blit(title, (self.panel.rect.x + 40, self.panel.rect.y + 60))
         sub = self.theme.font.render(reward, True, self.theme.colors.muted)
         surface.blit(sub, (self.panel.rect.x + 40, self.panel.rect.y + 120))
+        self.draw_overlays(surface)

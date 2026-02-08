@@ -10,6 +10,8 @@ from game.sim.economy import daily_customer_count, choose_purchase
 from game.sim.economy_rules import effective_sale_price, xp_from_sale
 from game.sim.skill_tree import get_default_skill_tree
 from game.sim.economy_rules import fixture_cost
+from game.sim.skill_tree import SkillNodeDef
+from game.sim.progression import xp_to_next
 from game.ui.widgets import Button, Panel, ScrollList, ScrollItem
 from game.sim.inventory import RARITIES, InventoryOrder
 from game.cards.card_defs import CARD_INDEX
@@ -54,7 +56,7 @@ class ShopScene(Scene):
         self.spawned = 0
         self.selected_object = "shelf"
         self.current_tab = "shop"
-        self.tabs = ["shop", "packs", "deck", "manage", "battle"]
+        self.tabs = ["shop", "packs", "deck", "manage", "skills", "battle"]
         self.tab_buttons: list[Button] = []
         self.revealed_cards: list[str] = []
         self.reveal_index = 0
@@ -73,6 +75,7 @@ class ShopScene(Scene):
         self.inventory_panel = Panel(pygame.Rect(0, 0, 280, 240), "Inventory")
         self.book_panel = Panel(pygame.Rect(0, 0, 540, 520), "Card Book")
         self.deck_panel = Panel(pygame.Rect(0, 0, 320, 420), "Deck")
+        self.skills_panel = Panel(pygame.Rect(0, 0, 720, 560), "Skills")
         self.shelf_list = ScrollList(pygame.Rect(0, 0, 100, 100), [])
         self.selected_shelf_key: str | None = None
         self.product_index = 0
@@ -120,6 +123,18 @@ class ShopScene(Scene):
         self._staff_level_text: pygame.Surface | None = None
         self._staff_blocked_tiles: set[tuple[int, int]] = set()
         self._staff_blocked_count = -1
+        # Skills UI state (UI-only; not saved).
+        self._skills_pan = pygame.Vector2(0, 0)
+        self._skills_panning = False
+        self._skills_pan_last = pygame.Vector2(0, 0)
+        self._skills_node_size = (168, 56)
+        tree = get_default_skill_tree()
+        # Precompute edges (prereq -> node) for drawing.
+        self._skills_edges: list[tuple[str, str]] = []
+        for sid, node in tree.nodes.items():
+            for pr in node.prereqs:
+                self._skills_edges.append((pr.skill_id, sid))
+        self._skills_nodes: list[SkillNodeDef] = list(tree.nodes.values())
         self._layout()
         self._build_buttons()
         self._init_assets()
@@ -222,6 +237,12 @@ class ShopScene(Scene):
                 max(260, int(width * 0.18)),
                 max(320, int(height * 0.4)),
             )
+            skills_rect = pygame.Rect(
+                self._panel_padding,
+                base_top + self._panel_padding,
+                max(720, int(width * 0.62)),
+                max(520, int(height * 0.62)),
+            )
         else:
             order_rect = self._clamp_rect(self.order_panel.rect.copy(), width, height)
             stock_rect = self._clamp_rect(self.stock_panel.rect.copy(), width, height)
@@ -231,12 +252,14 @@ class ShopScene(Scene):
             book_rect = self._clamp_rect(self.book_panel.rect.copy(), width, height)
             deck_rect = self._clamp_rect(self.deck_panel.rect.copy(), width, height)
             shop_rect = self._clamp_rect(self.shop_panel.rect.copy(), width, height)
+            skills_rect = self._clamp_rect(self.skills_panel.rect.copy(), width, height)
         self.order_panel = Panel(order_rect, "Ordering")
         self.stock_panel = Panel(stock_rect, "Stocking")
         self.inventory_panel = Panel(inv_rect, "Inventory")
         self.book_panel = Panel(book_rect, "Card Book")
         self.deck_panel = Panel(deck_rect, "Deck")
         self.shop_panel = Panel(shop_rect, "Shop")
+        self.skills_panel = Panel(skills_rect, "Skills")
         self.shelf_list = ScrollList(list_rect, self.shelf_list.items)
         # Center the unified menu modal on resize.
         self.menu_panel = Panel(anchor_rect(self.app.screen, (420, 260), "center"), "Menu")
@@ -267,11 +290,81 @@ class ShopScene(Scene):
         elif target == "shop":
             min_w = 560
             min_h = 420
+        elif target == "skills":
+            min_w = 600
+            min_h = 420
         rect.width = max(min_w, min(rect.width, width - 40))
         rect.height = max(min_h, min(rect.height, height - self._top_bar_height - 40))
         rect.x = max(8, min(rect.x, width - rect.width - 8))
         rect.y = max(self._top_bar_height + 8, min(rect.y, height - rect.height - 8))
         return rect
+
+    def _tooltip_sources(self) -> list[Button]:
+        out: list[Button] = []
+        out.extend(self.day_buttons)
+        out.extend(self.tab_buttons)
+        out.extend(self.buttons)
+        if self.menu_open:
+            out.extend(self.menu_buttons)
+        return out
+
+    def _skills_content_rect(self) -> pygame.Rect:
+        r = self.skills_panel.rect
+        return pygame.Rect(r.x + 12, r.y + 36, r.width - 24, r.height - 48)
+
+    def _skill_at_pos(self, pos: tuple[int, int]) -> str | None:
+        if not self.skills_panel.rect.collidepoint(pos):
+            return None
+        content = self._skills_content_rect()
+        if not content.collidepoint(pos):
+            return None
+        local = pygame.Vector2(pos[0] - content.x, pos[1] - content.y) - self._skills_pan
+        w, h = self._skills_node_size
+        for node in self._skills_nodes:
+            nx, ny = node.pos
+            rect = pygame.Rect(int(nx - w // 2), int(ny - h // 2), w, h)
+            if rect.collidepoint((int(local.x), int(local.y))):
+                return node.skill_id
+        return None
+
+    def _extra_tooltip_text(self, pos: tuple[int, int]) -> str | None:
+        if self.current_tab == "shop":
+            tile = self._tile_at_pos(pos)
+            if tile:
+                obj = self.app.state.shop_layout.object_at(tile)
+                if obj and obj.kind == "shelf":
+                    key = self.app.state.shop_layout._key(tile)
+                    stock = self.app.state.shop_layout.shelf_stocks.get(key)
+                    if stock:
+                        return f"Shelf {key}: {stock.product} {stock.qty}/{stock.max_qty}"
+                if obj:
+                    return f"{obj.kind.title()} at {tile}"
+                return f"Empty tile {tile} (click to place {self.selected_object})"
+        if self.current_tab == "skills":
+            sid = self._skill_at_pos(pos)
+            if not sid:
+                return None
+            tree = get_default_skill_tree()
+            node = tree.nodes[sid]
+            r = self.app.state.skills.rank(sid)
+            ok, reason = self.app.state.skills.can_rank_up(tree, sid, self.app.state.progression)
+            prereq_txt = ""
+            if node.prereqs:
+                prereq_txt = " Prereqs: " + ", ".join(
+                    f"{tree.nodes[p.skill_id].name} {p.rank}" for p in node.prereqs
+                )
+            effect_txt = ""
+            if node.mods_per_rank.sell_price_pct:
+                effect_txt += f" Sell +{node.mods_per_rank.sell_price_pct*100:.1f}%/rank."
+            if node.mods_per_rank.sales_xp_pct:
+                effect_txt += f" Sales XP +{node.mods_per_rank.sales_xp_pct*100:.1f}%/rank."
+            if node.mods_per_rank.battle_xp_pct:
+                effect_txt += f" Battle XP +{node.mods_per_rank.battle_xp_pct*100:.1f}%/rank."
+            if node.mods_per_rank.fixture_discount_pct:
+                effect_txt += f" Fixtures -{node.mods_per_rank.fixture_discount_pct*100:.1f}%/rank."
+            status = "Click to rank up." if ok else reason
+            return f"{node.name} ({r}/{node.max_rank}) L{node.level_req}+.{prereq_txt}{effect_txt} {status}"
+        return None
 
     def _open_list_card_menu(self) -> None:
         self.manage_card_book_open = True
@@ -407,38 +500,43 @@ class ShopScene(Scene):
             shelf_cost = fixture_cost("shelf", mods) or 0
             counter_cost = fixture_cost("counter", mods) or 0
             poster_cost = fixture_cost("poster", mods) or 0
-            self.buttons = [
-                Button(
+            place_shelf = Button(
                     pygame.Rect(x, y, button_width, 30),
                     f"Place Shelf (owned {inv.shelves})",
                     lambda: self._set_object("shelf"),
-                ),
-                Button(
+                )
+            place_shelf.tooltip = "Select Shelf placement. Click a tile in the shop to place (requires owning a shelf)."
+            place_counter = Button(
                     pygame.Rect(x, y + 36, button_width, 30),
                     f"Place Counter (owned {inv.counters})",
                     lambda: self._set_object("counter"),
-                ),
-                Button(
+                )
+            place_counter.tooltip = "Select Counter placement. Counters are where customers check out."
+            place_poster = Button(
                     pygame.Rect(x, y + 72, button_width, 30),
                     f"Place Poster (owned {inv.posters})",
                     lambda: self._set_object("poster"),
-                ),
-                Button(
+                )
+            place_poster.tooltip = "Select Poster placement. Posters are decorative fixtures."
+            buy_shelf = Button(
                     pygame.Rect(x, y + 118, button_width, 30),
                     f"Buy Shelf (+1) ${shelf_cost}",
-                    lambda: self.app.try_buy_fixture("shelf"),
-                ),
-                Button(
+                    lambda: self._buy_fixture("shelf"),
+                )
+            buy_shelf.tooltip = "Buy a shelf to place in the shop. Shelves hold inventory for customers."
+            buy_counter = Button(
                     pygame.Rect(x, y + 154, button_width, 30),
                     f"Buy Counter (+1) ${counter_cost}",
-                    lambda: self.app.try_buy_fixture("counter"),
-                ),
-                Button(
+                    lambda: self._buy_fixture("counter"),
+                )
+            buy_counter.tooltip = "Buy a counter to place in the shop."
+            buy_poster = Button(
                     pygame.Rect(x, y + 190, button_width, 30),
                     f"Buy Poster (+1) ${poster_cost}",
-                    lambda: self.app.try_buy_fixture("poster"),
-                ),
-            ]
+                    lambda: self._buy_fixture("poster"),
+                )
+            buy_poster.tooltip = "Buy a poster to decorate the shop."
+            self.buttons = [place_shelf, place_counter, place_poster, buy_shelf, buy_counter, buy_poster]
         elif self.current_tab == "packs":
             x = self.order_panel.rect.x + 20
             y = self.order_panel.rect.y + 40
@@ -446,6 +544,8 @@ class ShopScene(Scene):
                 Button(pygame.Rect(x, y, button_width, 34), "Open Pack", self._open_pack),
                 Button(pygame.Rect(x, y + 46, button_width, 30), "Reveal All", self._reveal_all),
             ]
+            self.buttons[0].tooltip = "Open a booster pack from your inventory and add the cards to your collection."
+            self.buttons[1].tooltip = "Reveal all cards in the current pack instantly."
         elif self.current_tab == "manage":
             order_x = self.order_panel.rect.x + 20
             order_y = self.order_panel.rect.y + 40
@@ -496,6 +596,23 @@ class ShopScene(Scene):
                 Button(pygame.Rect(stock_x, stock_y + 360, stock_width, 28), "Next Shelf", lambda: self._select_adjacent_shelf(1)),
                 Button(pygame.Rect(stock_x, stock_y + 392, stock_width, 28), "Clear Selection", self._clear_shelf_selection),
             ]
+            for b in self.buttons:
+                if b.text.startswith("Order "):
+                    b.tooltip = "Place an order (delivers after ~30 seconds of real time)."
+                elif b.text in {"Booster", "Deck", "Common", "Uncommon", "Rare", "Epic", "Legendary"}:
+                    b.tooltip = "Choose which product you want to stock onto shelves."
+                elif b.text.startswith("Price"):
+                    b.tooltip = "Adjust retail price (affects customer purchasing likelihood)."
+                elif b.text.startswith("Stock"):
+                    b.tooltip = "Stock the selected shelf with the selected product, consuming your inventory."
+                elif b.text == "Fill Shelf":
+                    b.tooltip = "Fill the selected shelf to max capacity."
+                elif b.text == "List Selected Card":
+                    b.tooltip = "List a specific card from your collection onto the selected shelf."
+                elif b.text in {"Prev Shelf", "Next Shelf"}:
+                    b.tooltip = "Cycle through shelves to quickly manage stock."
+                elif b.text == "Clear Selection":
+                    b.tooltip = "Clear the current shelf selection."
             if self.manage_card_book_open:
                 book = self.book_panel.rect
                 bx = book.x + 12
@@ -517,6 +634,11 @@ class ShopScene(Scene):
                     self._buy_market_single,
                 )
                 self.buttons.extend([close_btn, list_btn, rarity_minus, rarity_plus, buy_btn])
+                close_btn.tooltip = "Close the card listing overlay."
+                list_btn.tooltip = "List one copy of the selected card onto the selected shelf."
+                rarity_minus.tooltip = "Change the market rarity filter."
+                rarity_plus.tooltip = "Change the market rarity filter."
+                buy_btn.tooltip = "Buy one random card of the selected rarity from the market."
             # If the shelf list overlaps controls, push it below the last stock control.
             stock_btns = [b for b in self.buttons if self.stock_panel.rect.collidepoint(b.rect.center)]
             if stock_btns:
@@ -549,11 +671,31 @@ class ShopScene(Scene):
                     self._buy_market_single,
                 ),
             ]
+            tips = {
+                "Add to Deck": "Add the selected card to your deck (max 2 copies).",
+                "Remove from Deck": "Remove one copy of the selected card from your deck.",
+                "Auto Fill": "Automatically fill the deck up to 20 cards from your collection.",
+                "Clear Deck": "Remove all cards from the deck.",
+                "Rarity -": "Change market rarity filter.",
+                "Rarity +": "Change market rarity filter.",
+            }
+            for b in self.buttons:
+                if b.text in tips:
+                    b.tooltip = tips[b.text]
+                if b.text.startswith("Buy Random "):
+                    b.tooltip = "Buy one random card of the selected rarity."
+        elif self.current_tab == "skills":
+            x = self.order_panel.rect.x + 20
+            y = self.order_panel.rect.y + 40
+            reset = Button(pygame.Rect(x, y, button_width, 34), "Reset View", self._skills_reset_view)
+            reset.tooltip = "Reset the skill tree view pan to the default position."
+            self.buttons = [reset]
         elif self.current_tab == "battle":
             x = self.order_panel.rect.x + 20
             y = self.order_panel.rect.y + 40
             btn = Button(pygame.Rect(x, y, button_width, 34), "Start Battle", self._start_battle)
             btn.enabled = self.app.state.deck.is_valid()
+            btn.tooltip = "Start a battle using your current deck. Winning grants money, a pack, and XP."
             self.buttons = [btn]
 
         # Unified "Menu" modal buttons (built last so they can be drawn/handled on top)
@@ -571,6 +713,10 @@ class ShopScene(Scene):
                 Button(pygame.Rect(x, y + 2 * (h + gap), w, h), "Exit to Menu", self._menu_exit_to_menu),
                 Button(pygame.Rect(x, y + 3 * (h + gap), w, h), "Close", self._menu_close),
             ]
+            self.menu_buttons[0].tooltip = "Save the current game state to the active slot."
+            self.menu_buttons[1].tooltip = "Start a fresh game in this slot."
+            self.menu_buttons[2].tooltip = "Return to the main menu (save slots)."
+            self.menu_buttons[3].tooltip = "Close this menu."
 
     def _build_tab_btns(self) -> None:
         self.tab_buttons = []
@@ -588,7 +734,9 @@ class ShopScene(Scene):
             col = i % per_row
             rect = pygame.Rect(x0 + col * (btn_w + gap), y0 + row * (btn_h + 8), btn_w, btn_h)
             label = "Menu" if tab == "menu" else tab.title()
-            self.tab_buttons.append(Button(rect, label, lambda t=tab: self._switch_tab(t)))
+            b = Button(rect, label, lambda t=tab: self._switch_tab(t))
+            b.tooltip = f"Open the {label} tab."
+            self.tab_buttons.append(b)
 
     def _switch_tab(self, tab: str) -> None:
         if tab == "menu":
@@ -1038,12 +1186,48 @@ class ShopScene(Scene):
                 self._handle_deck_click(event.pos)
             if event.type == pygame.MOUSEWHEEL:
                 self._scroll_card_book(-event.y * 24)
+        if self.current_tab == "skills":
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+                if self._skills_content_rect().collidepoint(event.pos):
+                    self._skills_panning = True
+                    self._skills_pan_last = pygame.Vector2(event.pos)
+            if event.type == pygame.MOUSEBUTTONUP and event.button == 3:
+                self._skills_panning = False
+            if event.type == pygame.MOUSEMOTION and self._skills_panning:
+                cur = pygame.Vector2(event.pos)
+                delta = cur - self._skills_pan_last
+                self._skills_pan += delta
+                self._skills_pan_last = cur
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                sid = self._skill_at_pos(event.pos)
+                if sid:
+                    tree = get_default_skill_tree()
+                    ok, reason = self.app.state.skills.can_rank_up(tree, sid, self.app.state.progression)
+                    if not ok:
+                        self.toasts.push(reason)
+                    else:
+                        if self.app.state.skills.rank_up(tree, sid, self.app.state.progression):
+                            node = tree.nodes[sid]
+                            r = self.app.state.skills.rank(sid)
+                            self.toasts.push(f"Upgraded: {node.name} ({r}/{node.max_rank})")
+                return
         if self.current_tab != "shop":
             return
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             tile = self._tile_at_pos(event.pos)
             if tile:
-                self.app.try_place_object(self.selected_object, tile)
+                kind = self.selected_object
+                # Give user-friendly errors for fixture placement rules.
+                if kind in {"shelf", "counter", "poster"} and not self.app.state.fixtures.can_place(kind):
+                    self.toasts.push(f"Buy a {kind} first.")
+                    return
+                placed = self.app.try_place_object(kind, tile)
+                if placed:
+                    self.toasts.push(f"Placed {kind}.")
+                    if kind in {"shelf", "counter", "poster"}:
+                        self._build_buttons()
+                else:
+                    self.toasts.push("Can't place there (occupied or out of bounds).")
 
     def update(self, dt: float) -> None:
         super().update(dt)
@@ -1191,7 +1375,28 @@ class ShopScene(Scene):
         self.app.state.money += price
         self.app.state.last_summary.revenue += price
         self.app.state.last_summary.units_sold += 1
-        self.app.state.progression.add_xp(xp_from_sale(price, mods))
+        res = self.app.state.progression.add_xp(xp_from_sale(price, mods))
+        if res.gained_levels > 0:
+            self.toasts.push(f"Level up! Lv {self.app.state.progression.level} (+{res.gained_skill_points} SP)")
+
+    def _buy_fixture(self, kind: str) -> None:
+        mods = self.app.state.skills.modifiers(get_default_skill_tree())
+        cost = fixture_cost(kind, mods) or 0
+        if cost <= 0:
+            self.toasts.push("Can't buy that fixture.")
+            return
+        if self.app.state.money < cost:
+            self.toasts.push(f"Not enough money (${cost}).")
+            return
+        ok = self.app.try_buy_fixture(kind)
+        if ok:
+            self.toasts.push(f"Purchased {kind} (+1).")
+            self._build_buttons()
+        else:
+            self.toasts.push("Purchase failed.")
+
+    def _skills_reset_view(self) -> None:
+        self._skills_pan.update(0, 0)
 
     def _tile_at_pos(self, pos: tuple[int, int]) -> tuple[int, int] | None:
         if not self._shop_inner_rect().collidepoint(pos):
@@ -1273,6 +1478,8 @@ class ShopScene(Scene):
         if self.current_tab == "deck":
             self.book_panel.draw(surface, self.theme)
             self.deck_panel.draw(surface, self.theme)
+        if self.current_tab == "skills":
+            self.skills_panel.draw(surface, self.theme)
         for button in self.buttons:
             button.draw(surface, self.theme)
         for tb in self.tab_buttons:
@@ -1285,6 +1492,8 @@ class ShopScene(Scene):
                 self._draw_deck(surface)
         if self.current_tab == "deck":
             self._draw_deck(surface)
+        if self.current_tab == "skills":
+            self._draw_skills(surface)
         if self.current_tab == "battle":
             self._draw_battle_info(surface)
         if self.menu_open:
@@ -1294,6 +1503,74 @@ class ShopScene(Scene):
             self.menu_panel.draw(surface, self.theme)
             for button in self.menu_buttons:
                 button.draw(surface, self.theme)
+        self.draw_overlays(surface)
+
+    def _draw_skills(self, surface: pygame.Surface) -> None:
+        tree = get_default_skill_tree()
+        content = self._skills_content_rect()
+        # Background
+        pygame.draw.rect(surface, self.theme.colors.panel_alt, content)
+        pygame.draw.rect(surface, self.theme.colors.border, content, 1)
+        clip = surface.get_clip()
+        surface.set_clip(content)
+        # Simple grid
+        gx = int(self._skills_pan.x) % 40
+        gy = int(self._skills_pan.y) % 40
+        for x in range(content.x - gx, content.right, 40):
+            pygame.draw.line(surface, (35, 36, 44), (x, content.y), (x, content.bottom), 1)
+        for y in range(content.y - gy, content.bottom, 40):
+            pygame.draw.line(surface, (35, 36, 44), (content.x, y), (content.right, y), 1)
+
+        # Draw edges
+        node_by_id = tree.nodes
+        for a, b in self._skills_edges:
+            na = node_by_id[a]
+            nb = node_by_id[b]
+            ax, ay = na.pos
+            bx, by = nb.pos
+            p1 = (int(content.x + self._skills_pan.x + ax), int(content.y + self._skills_pan.y + ay))
+            p2 = (int(content.x + self._skills_pan.x + bx), int(content.y + self._skills_pan.y + by))
+            pygame.draw.line(surface, (70, 80, 95), p1, p2, 2)
+
+        # Draw nodes
+        w, h = self._skills_node_size
+        prog = self.app.state.progression
+        skills = self.app.state.skills
+        for node in self._skills_nodes:
+            nx, ny = node.pos
+            rect = pygame.Rect(
+                int(content.x + self._skills_pan.x + nx - w // 2),
+                int(content.y + self._skills_pan.y + ny - h // 2),
+                w,
+                h,
+            )
+            r = skills.rank(node.skill_id)
+            ok, _reason = skills.can_rank_up(tree, node.skill_id, prog)
+            locked = (prog.level < node.level_req) or any(skills.rank(p.skill_id) < p.rank for p in node.prereqs)
+            bg = self.theme.colors.panel if (r > 0) else self.theme.colors.panel_alt
+            if locked:
+                bg = (28, 30, 36)
+            if ok:
+                bg = self.theme.colors.accent_hover
+            pygame.draw.rect(surface, bg, rect, border_radius=8)
+            pygame.draw.rect(surface, self.theme.colors.border, rect, 2, border_radius=8)
+            name = self.theme.render_text(self.theme.font_small, node.name, self.theme.colors.text)
+            surface.blit(name, (rect.x + 8, rect.y + 6))
+            rr = self.theme.render_text(
+                self.theme.font_small,
+                f"{r}/{node.max_rank}  L{node.level_req}+",
+                self.theme.colors.muted,
+            )
+            surface.blit(rr, (rect.x + 8, rect.y + 28))
+
+        surface.set_clip(clip)
+        # Header summary
+        sx = self.skills_panel.rect.x + 12
+        sy = self.skills_panel.rect.y + 8
+        mods = skills.modifiers(tree)
+        summary = f"Lv {prog.level}  XP {prog.xp}/{xp_to_next(prog.level)}  SP {prog.skill_points}  Sell +{mods.sell_price_pct*100:.1f}%"
+        text = self.theme.render_text(self.theme.font_small, summary, self.theme.colors.muted)
+        surface.blit(text, (sx, sy))
 
     def _draw_grid(self, surface: pygame.Surface) -> None:
         y_off = self._shop_y_offset
@@ -1521,6 +1798,9 @@ class ShopScene(Scene):
                 return True
             if self._start_drag_or_resize(self.book_panel.rect, "book", pos):
                 return True
+        if self.current_tab == "skills":
+            if self._start_drag_or_resize(self.skills_panel.rect, "skills", pos):
+                return True
         if self._start_drag_or_resize(self.order_panel.rect, "order", pos):
             return True
         if self._start_drag_or_resize(self.shop_panel.rect, "shop", pos):
@@ -1556,6 +1836,8 @@ class ShopScene(Scene):
                 rect = self.book_panel.rect
             elif self._drag_target == "deck":
                 rect = self.deck_panel.rect
+            elif self._drag_target == "skills":
+                rect = self.skills_panel.rect
             elif self._drag_target == "shop":
                 rect = self.shop_panel.rect
             else:
@@ -1583,6 +1865,8 @@ class ShopScene(Scene):
                 self._relayout_buttons_only()
             elif self._drag_target == "deck":
                 self.deck_panel.rect = rect
+            elif self._drag_target == "skills":
+                self.skills_panel.rect = rect
             elif self._drag_target == "shop":
                 self.shop_panel.rect = rect
                 self._update_shop_viewport(rescale=False)
@@ -1599,6 +1883,8 @@ class ShopScene(Scene):
                 rect = self.book_panel.rect
             elif self._resize_target == "deck":
                 rect = self.deck_panel.rect
+            elif self._resize_target == "skills":
+                rect = self.skills_panel.rect
             elif self._resize_target == "shop":
                 rect = self.shop_panel.rect
             else:
@@ -1620,6 +1906,8 @@ class ShopScene(Scene):
                 self._relayout_buttons_only()
             elif self._resize_target == "deck":
                 self.deck_panel.rect = rect
+            elif self._resize_target == "skills":
+                self.skills_panel.rect = rect
             elif self._resize_target == "shop":
                 self.shop_panel.rect = rect
                 self._update_shop_viewport(rescale=False)
@@ -1640,8 +1928,10 @@ class ShopScene(Scene):
         product = self.products[self.product_index]
         price_attr = self._price_attr_for_product(product)
         price_value = getattr(self.app.state.prices, price_attr) if price_attr else 0
+        mods = self.app.state.skills.modifiers(get_default_skill_tree())
+        eff = effective_sale_price(self.app.state.prices, product, mods) or int(price_value)
         prod_text = self.theme.render_text(
-            self.theme.font_small, f"Product: {product} | Price: ${price_value}", self.theme.colors.text
+            self.theme.font_small, f"Product: {product} | Base: ${price_value} | Sell: ${eff}", self.theme.colors.text
         )
         surface.blit(prod_text, (self.stock_panel.rect.x + 20, self.stock_panel.rect.bottom + 8))
         selected = self.selected_shelf_key or "None"
