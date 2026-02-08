@@ -11,6 +11,7 @@ from game.sim.economy import choose_purchase
 from game.config import Prices
 from game.sim.inventory import Inventory, InventoryOrder
 from game.sim.shop import ShopLayout
+from game.sim.progression import MAX_LEVEL, PlayerProgression, xp_to_next
 
 
 def test_pack_generation() -> None:
@@ -192,6 +193,32 @@ def test_staff_choose_restock_plan() -> None:
     assert plan2 is not None and plan2.card_id == cid
 
 
+def test_progression_curve_monotonic_and_levelups() -> None:
+    # xp_to_next should be monotonic increasing for 1..MAX_LEVEL-1
+    prev = 0
+    for lvl in range(1, MAX_LEVEL):
+        need = xp_to_next(lvl)
+        assert need > 0
+        assert need >= prev
+        prev = need
+
+    p = PlayerProgression(level=1, xp=0, skill_points=0)
+    # Add enough XP to multi-level up.
+    total = sum(xp_to_next(lvl) for lvl in range(1, 15))
+    res = p.add_xp(total)
+    assert res.gained_levels >= 14
+    assert p.level >= 15
+    # Skill points should increase with levels.
+    assert p.skill_points == (p.level - 1)
+
+    # Cap behavior.
+    p2 = PlayerProgression(level=MAX_LEVEL, xp=999999, skill_points=123)
+    res2 = p2.add_xp(999999)
+    assert res2.gained_levels == 0
+    assert p2.level == MAX_LEVEL
+    assert p2.xp == 999999  # unchanged by add_xp at cap; normalization is in from_dict
+
+
 def run() -> None:
     test_pack_generation()
     test_deck_rules()
@@ -203,6 +230,7 @@ def run() -> None:
     test_text_cache_lru_and_counters()
     test_day_night_pause_smoke()
     test_staff_choose_restock_plan()
+    test_progression_curve_monotonic_and_levelups()
     print("Sanity checks passed.")
 
 
