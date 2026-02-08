@@ -30,7 +30,7 @@ from game.assets import get_asset_manager
 from game.assets.shop import get_shop_asset_manager
 from game.ui.effects import draw_glow_border
 from game.ui.layout import anchor_rect
-from game.sim.actors import Staff, update_staff
+from game.sim.actors import Staff, notify_shelf_change, update_staff
 
 MINI_GRID = (14, 8)
 MINI_TILE = 42
@@ -1252,6 +1252,11 @@ class ShopScene(Scene):
         if self.app.screen.get_size() != self._last_screen_size:
             self._layout()
             self._build_buttons()
+        # Keep staff actor XP in sync with persisted state even when the day isn't running,
+        # so loads immediately reflect the correct actor stats.
+        if self.staff.xp != self.app.state.shopkeeper_xp:
+            self.staff.xp = int(self.app.state.shopkeeper_xp)
+            self.staff.level = max(1, 1 + self.staff.xp // 100)
         if self._drag_target or self._resize_target:
             self._apply_drag_resize()
         for tb in self.tab_buttons:
@@ -1319,16 +1324,22 @@ class ShopScene(Scene):
         if obj_count != self._staff_blocked_count:
             self._staff_blocked_tiles = {obj.tile for obj in self.app.state.shop_layout.objects}
             self._staff_blocked_count = obj_count
+        # Sync persisted shopkeeper XP <-> staff actor (so load/save works reliably).
+        if self.staff.xp != self.app.state.shopkeeper_xp:
+            self.staff.xp = int(self.app.state.shopkeeper_xp)
         did = update_staff(
             self.staff,
             dt,
             grid=SHOP_GRID,
             blocked_tiles=self._staff_blocked_tiles,
+            counter_tile=self._find_object_tile("counter") or (10, 7),
             shelf_stocks=self.app.state.shop_layout.shelf_stocks,
             inventory=self.app.state.inventory,
             collection=self.app.state.collection,
             deck=self.app.state.deck,
         )
+        if self.app.state.shopkeeper_xp != self.staff.xp:
+            self.app.state.shopkeeper_xp = int(self.staff.xp)
         if did and self.current_tab == "manage":
             self._refresh_shelves()
             self._build_buttons()
@@ -1420,8 +1431,9 @@ class ShopScene(Scene):
             stock.qty -= 1
         if stock.qty <= 0:
             stock.qty = 0
-            stock.product = "empty"
-            if hasattr(stock, "cards"):
+            # Keep the last product type so staff can restock it (customers only buy if qty>0 anyway).
+            if hasattr(stock, "cards") and getattr(stock, "cards", None) is not None:
+                # If this was a listed-cards shelf and it's now empty, treat it as a bulk singles shelf.
                 stock.cards.clear()
         self.app.state.money += price
         self.app.state.last_summary.revenue += price
@@ -1429,6 +1441,8 @@ class ShopScene(Scene):
         res = self.app.state.progression.add_xp(xp_from_sale(price, mods))
         if res.gained_levels > 0:
             self.toasts.push(f"Level up! Lv {self.app.state.progression.level} (+{res.gained_skill_points} SP)")
+        # Notify staff so they react immediately to stock being taken off shelves.
+        notify_shelf_change(self.staff, shelf_key)
 
     def _buy_fixture(self, kind: str) -> None:
         mods = self.app.state.skills.modifiers(get_default_skill_tree())
@@ -1721,9 +1735,10 @@ class ShopScene(Scene):
             rect = pygame.Rect(int(px - 10), int(py - 18), 20, 20)
             pygame.draw.rect(surface, (160, 220, 255), rect)
 
-        # XP + level (cheap rect fill + cached level text).
-        xp_in_level = self.staff.xp % 100
-        frac = xp_in_level / 100.0
+        # XP + level indicator is the player's progression (persistent), not the internal restock XP.
+        prog = self.app.state.progression
+        frac = prog.progress_frac()
+        level = int(prog.level)
         bar_w = max(24, min(42, size))
         bar_h = 4
         bar_x = int(px - bar_w // 2)
@@ -1734,10 +1749,10 @@ class ShopScene(Scene):
         if fill_w > 0:
             pygame.draw.rect(surface, (90, 170, 255), pygame.Rect(bar_x, bar_y, fill_w, bar_h))
 
-        if self.staff.level != self._staff_level_cached or self._staff_level_text is None:
-            self._staff_level_cached = self.staff.level
+        if level != self._staff_level_cached or self._staff_level_text is None:
+            self._staff_level_cached = level
             self._staff_level_text = self.theme.render_text(
-                self.theme.font_small, f"Lv {self.staff.level}", self.theme.colors.muted
+                self.theme.font_small, f"Lv {level}", self.theme.colors.muted
             )
         if self._staff_level_text:
             surface.blit(self._staff_level_text, (bar_x, bar_y + 6))

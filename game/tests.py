@@ -204,6 +204,40 @@ def test_staff_choose_restock_plan() -> None:
     assert plan2 is not None and plan2.card_id == cid
 
 
+def test_staff_pickup_and_restock_smoke() -> None:
+    from game.sim.actors import Staff, notify_shelf_change, update_staff
+    from game.sim.shop import ShelfStock
+    from game.sim.inventory import Inventory
+    from game.cards.collection import CardCollection
+    from game.cards.deck import Deck
+
+    staff = Staff(pos=(1.5, 10.5), speed_tiles_per_s=10.0)
+    inv = Inventory(booster_packs=10, decks=5, singles={"common": 5, "uncommon": 0, "rare": 0, "epic": 0, "legendary": 0})
+    col = CardCollection()
+    deck = Deck()
+    shelves = {"2,2": ShelfStock("booster", qty=0, max_qty=10)}
+    blocked = {(2, 2), (10, 7)}  # shelf tile and counter tile are occupied
+    notify_shelf_change(staff, "2,2")
+
+    did = False
+    for _ in range(300):
+        did = update_staff(
+            staff,
+            0.1,
+            grid=(20, 12),
+            blocked_tiles=blocked,
+            counter_tile=(10, 7),
+            shelf_stocks=shelves,
+            inventory=inv,
+            collection=col,
+            deck=deck,
+        ) or did
+        if shelves["2,2"].qty > 0:
+            break
+    assert shelves["2,2"].qty > 0
+    assert inv.booster_packs < 10  # picked up from inventory at counter
+
+
 def test_progression_curve_monotonic_and_levelups() -> None:
     # xp_to_next should be monotonic increasing for 1..MAX_LEVEL-1
     prev = 0
@@ -309,6 +343,7 @@ def test_save_backcompat_defaults_progression_skills_fixtures() -> None:
     assert s.progression.level == 1
     assert s.skills.rank("haggle") == 0
     assert s.fixtures.shelves == 0
+    assert s.shopkeeper_xp == 0
 
 
 def test_sale_applies_sell_modifier_consistently() -> None:
@@ -366,6 +401,35 @@ def test_customer_spawn_interval_ramp() -> None:
         prev = cur
 
 
+def test_skill_points_reconcile_on_load() -> None:
+    # If a save has skill ranks but incorrect/missing skill_points, load should reconcile.
+    from game.core.app import GameState
+    from game.config import Prices
+    from game.sim.inventory import Inventory
+    from game.cards.collection import CardCollection
+    from game.cards.deck import Deck
+    from game.sim.shop import ShopLayout
+
+    d = {
+        "money": 100,
+        "day": 1,
+        "time_seconds": 0.0,
+        "prices": Prices().__dict__,
+        "inventory": Inventory().to_dict(),
+        "collection": CardCollection().to_dict(),
+        "deck": Deck().to_dict(),
+        "shop_layout": ShopLayout().to_dict(),
+        "pending_orders": [],
+        "last_summary": {"revenue": 0, "profit": 0, "units_sold": 0, "customers": 0},
+        "progression": {"level": 10, "xp": 0, "skill_points": 0},
+        "skills": {"ranks": {"haggle": 2, "sparring": 1}},  # spent=3, earned=9 => expected unspent=6
+        "fixtures": {"shelves": 0, "counters": 0, "posters": 0},
+    }
+    s = GameState.from_dict(d)
+    assert s.progression.level == 10
+    assert s.progression.skill_points == 6
+
+
 def run() -> None:
     test_pack_generation()
     test_deck_rules()
@@ -377,12 +441,14 @@ def run() -> None:
     test_text_cache_lru_and_counters()
     test_day_night_pause_smoke()
     test_staff_choose_restock_plan()
+    test_staff_pickup_and_restock_smoke()
     test_progression_curve_monotonic_and_levelups()
     test_skill_tree_validation_and_unlock_rules()
     test_economy_rules_price_and_xp_math()
     test_save_backcompat_defaults_progression_skills_fixtures()
     test_sale_applies_sell_modifier_consistently()
     test_customer_spawn_interval_ramp()
+    test_skill_points_reconcile_on_load()
     print("Sanity checks passed.")
 
 
