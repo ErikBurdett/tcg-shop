@@ -11,6 +11,10 @@ BASE_RESOLUTION = (1600, 900)
 TILE_SIZE = 48
 SHOP_GRID = (20, 12)
 
+# Day/night pacing (real-time seconds).
+DAY_DURATION_SECONDS = 300.0
+NIGHT_DURATION_SECONDS = 60.0
+
 SAVE_DIR = ".tcg_shop"
 # Legacy single-save filename (pre-save-slots).
 SAVE_FILE = "savegame.json"

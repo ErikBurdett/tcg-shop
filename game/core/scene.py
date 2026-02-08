@@ -5,9 +5,10 @@ from typing import Callable
 
 import pygame
 
-from game.ui.widgets import Button, Tooltip
+from game.ui.widgets import Button
 from game.ui.theme import Theme
 from game.ui.toasts import ToastManager
+from game.ui.tooltip_manager import TooltipManager
 
 
 @dataclass
@@ -35,7 +36,7 @@ class Scene:
         self.show_top_bar = True
         self.top_buttons: list[Button] = []
         self.day_buttons: list[Button] = []
-        self.tooltip = Tooltip()
+        self.tooltip = TooltipManager(delay_s=0.2)
         self.toasts = ToastManager()
         self._last_screen_size = self.app.screen.get_size()
         self._build_top_bar()
@@ -151,6 +152,7 @@ class Scene:
             button.update(dt)
         self._sync_day_buttons()
         self._update_global_tooltip()
+        self.tooltip.update(dt, theme=self.theme)
         self.toasts.update(dt)
 
     def _tooltip_sources(self) -> list[Button]:
@@ -165,11 +167,16 @@ class Scene:
         _ = pos
         return None
 
+    def _tooltip_bounds(self, pos: tuple[int, int]) -> pygame.Rect | None:
+        """Optional bounds to clamp tooltips (e.g. inside a panel/viewport)."""
+        _ = pos
+        return None
+
     def _update_global_tooltip(self) -> None:
         pos = pygame.mouse.get_pos()
         extra = self._extra_tooltip_text(pos)
         if extra:
-            self.tooltip.show(extra, pos)
+            self.tooltip.set_target(extra, pos, theme=self.theme, bounds=self._tooltip_bounds(pos))
             return
         text: str | None = None
         # Prefer the most recently created buttons (often visually on top).
@@ -182,9 +189,9 @@ class Scene:
                 text = b.tooltip
                 break
         if text:
-            self.tooltip.show(text, pos)
+            self.tooltip.set_target(text, pos, theme=self.theme, bounds=self._tooltip_bounds(pos))
         else:
-            self.tooltip.hide()
+            self.tooltip.clear_target()
 
     def draw(self, surface: pygame.Surface) -> None:
         if self.show_top_bar:
@@ -196,7 +203,7 @@ class Scene:
     def draw_overlays(self, surface: pygame.Surface) -> None:
         """Draw global overlays (toasts, tooltips) on top of all UI."""
         self.toasts.draw(surface, self.theme)
-        self.tooltip.draw(surface, self.theme)
+        self.tooltip.draw(surface, theme=self.theme)
 
     def debug_lines(self) -> list[str]:
         """Optional per-scene debug overlay lines."""

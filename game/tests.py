@@ -431,6 +431,35 @@ def test_skill_points_reconcile_on_load() -> None:
     assert s.progression.skill_points == 6
 
 
+def test_tooltip_lru_cache_eviction() -> None:
+    from game.ui.tooltip_manager import TooltipLRUCache, TooltipCacheKey, TooltipStyle
+
+    cache = TooltipLRUCache(max_items=2)
+    style = TooltipStyle(
+        font_id=1,
+        text_color=(255, 255, 255),
+        bg_color=(0, 0, 0, 180),
+        border_color=(10, 10, 10),
+        padding=6,
+        max_width=200,
+        border_radius=6,
+    )
+    k1 = TooltipCacheKey(style=style, text="a")
+    k2 = TooltipCacheKey(style=style, text="b")
+    k3 = TooltipCacheKey(style=style, text="c")
+    dummy = object()
+
+    cache.set(k1, dummy)  # type: ignore[arg-type]
+    cache.set(k2, dummy)  # type: ignore[arg-type]
+    assert cache.get(k1) is dummy
+    # Touch k1 so k2 becomes LRU.
+    cache.get(k1)
+    cache.set(k3, dummy)  # evicts k2
+    assert cache.get(k2) is None
+    assert cache.get(k1) is dummy
+    assert cache.get(k3) is dummy
+
+
 def run() -> None:
     test_pack_generation()
     test_deck_rules()
@@ -450,6 +479,7 @@ def run() -> None:
     test_sale_applies_sell_modifier_consistently()
     test_customer_spawn_interval_ramp()
     test_skill_points_reconcile_on_load()
+    test_tooltip_lru_cache_eviction()
     print("Sanity checks passed.")
 
 

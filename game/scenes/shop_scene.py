@@ -7,6 +7,8 @@ import pygame
 from game.config import (
     SHOP_GRID,
     TILE_SIZE,
+    DAY_DURATION_SECONDS,
+    NIGHT_DURATION_SECONDS,
     CUSTOMER_BROWSE_TIME_RANGE,
     CUSTOMER_PAY_TIME_RANGE,
     CUSTOMER_SPAWN_RETRY_DELAY,
@@ -60,8 +62,8 @@ class ShopScene(Scene):
         self.cycle_paused = False
         self.cycle_phase: str = "day"  # "day" | "night"
         self.phase_timer = 0.0
-        self.day_duration = 60.0
-        self.night_duration = 40.0
+        self.day_duration = float(DAY_DURATION_SECONDS)
+        self.night_duration = float(NIGHT_DURATION_SECONDS)
         self.day_transition_timer = 0.0  # fade-out tint when night -> day
         self._autosaved_this_night = False
         self.customers: list[Customer] = []
@@ -321,6 +323,16 @@ class ShopScene(Scene):
         if self.menu_open:
             out.extend(self.menu_buttons)
         return out
+
+    def _tooltip_bounds(self, pos: tuple[int, int]) -> pygame.Rect | None:
+        # If the tooltip is coming from inside the shop viewport, clamp within that viewport.
+        try:
+            inner = self._shop_inner_rect()
+            if inner.collidepoint(pos):
+                return inner
+        except Exception:
+            return None
+        return None
 
     def _skills_content_rect(self) -> pygame.Rect:
         r = self.skills_panel.rect
@@ -1137,13 +1149,20 @@ class ShopScene(Scene):
         self.spawned = 0
         interval = float(customer_spawn_interval(self.app.state.day))
         # Build a schedule based on target interval and hard safety cap.
-        sched: list[float] = []
-        t = interval  # first customer doesn't spawn instantly
-        max_spawns = int(MAX_CUSTOMERS_SPAWNED_PER_DAY)
-        while t < self.day_duration and len(sched) < max_spawns:
-            sched.append(float(t))
-            t += interval
-        self.customer_schedule = sched
+        max_spawns = max(0, int(MAX_CUSTOMERS_SPAWNED_PER_DAY))
+        if max_spawns <= 0:
+            self.customer_schedule = []
+        else:
+            # If the cap would cause spawns to finish early, slow the effective interval so visits
+            # stay spread across the whole day.
+            cap_interval = float(self.day_duration) / float(max_spawns + 1)
+            effective = max(float(interval), float(cap_interval))
+            sched: list[float] = []
+            t = effective  # first customer doesn't spawn instantly
+            while t < self.day_duration and len(sched) < max_spawns:
+                sched.append(float(t))
+                t += effective
+            self.customer_schedule = sched
         if reset_summary:
             self.app.state.last_summary = self.app.state.last_summary.__class__()
 

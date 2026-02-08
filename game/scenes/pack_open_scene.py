@@ -3,7 +3,7 @@ from __future__ import annotations
 import pygame
 
 from game.core.scene import Scene
-from game.ui.widgets import Button, Panel, Tooltip
+from game.ui.widgets import Button, Panel
 from game.cards.pack import open_booster
 from game.cards.card_defs import CARD_INDEX
 from game.assets import get_asset_manager
@@ -15,7 +15,6 @@ class PackOpenScene(Scene):
         super().__init__(app)
         self.panel = Panel(pygame.Rect(40, 80, 1200, 560), "Pack Opening")
         self.buttons: list[Button] = []
-        self.tooltip = Tooltip()
         self.revealed_cards: list[str] = []
         self.reveal_index = 0
         self.reveal_timer = 0.0

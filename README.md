@@ -56,7 +56,7 @@ python main.py
 - **Visual**
   - Cards gain a subtle **rarity-colored edge glow** in key UI renders.
 - **Simulation**
-  - **Day/Night cycle**: 60s day + 40s night, with **pause/resume**.
+  - **Day/Night cycle**: ~300s day + ~60s night, with **pause/resume**.
   - **Autosave**: game auto-saves at the **start of every night**.
   - **Roaming staff**: visible staff actor auto-restocks low shelves (based on shelf contents) and gains XP/levels.
 - **Progression + UI feedback**

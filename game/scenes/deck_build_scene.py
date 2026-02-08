@@ -3,7 +3,7 @@ from __future__ import annotations
 import pygame
 
 from game.core.scene import Scene
-from game.ui.widgets import Button, Panel, ScrollList, ScrollItem, Tooltip
+from game.ui.widgets import Button, Panel, ScrollList, ScrollItem
 from game.cards.card_defs import CARD_INDEX
 
 
@@ -18,7 +18,6 @@ class DeckBuildScene(Scene):
         self.selected_collection: str | None = None
         self.selected_deck: str | None = None
         self.filter_rarity: str | None = None
-        self.tooltip = Tooltip()
         self._build_buttons()
         self._refresh_lists()
 

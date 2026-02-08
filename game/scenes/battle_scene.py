@@ -5,7 +5,7 @@ import pygame
 from game.core.scene import Scene
 from game.cards.battle import BattleState
 from game.cards.card_defs import CARD_INDEX
-from game.ui.widgets import Button, Panel, Tooltip
+from game.ui.widgets import Button, Panel
 from game.assets import get_asset_manager
 from game.ui.effects import draw_glow_border
 from game.sim.economy_rules import xp_from_battle_win
@@ -16,7 +16,6 @@ class BattleScene(Scene):
     def __init__(self, app: "GameApp") -> None:
         super().__init__(app)
         self.panel = Panel(pygame.Rect(40, 80, 1200, 560), "Battle")
-        self.tooltip = Tooltip()
         self.end_button = Button(pygame.Rect(1040, 620, 180, 36), "End Turn (Space)", self._end_turn)
         self.end_button.tooltip = "End your turn. You can also press Space."
         self.battle: BattleState | None = None
