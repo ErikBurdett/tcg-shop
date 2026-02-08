@@ -33,6 +33,7 @@ python main.py
 4. Open boosters in Packs.
 5. Build a 20-card deck in Deck.
 6. Battle AI in Battle.
+7. Spend skill points and view modifiers in Skills.
 7. Save via the unified Menu button.
 
 ## What’s New (recent changes)
@@ -58,6 +59,12 @@ python main.py
   - **Day/Night cycle**: 60s day + 40s night, with **pause/resume**.
   - **Autosave**: game auto-saves at the **start of every night**.
   - **Roaming staff**: visible staff actor auto-restocks low shelves (based on shelf contents) and gains XP/levels.
+- **Progression + UI feedback**
+  - **Player progression**: earn XP from **shop sales** and **battle wins**, level up, and gain **skill points**.
+  - **Skills tab**: unlock skill nodes with prerequisites; modifiers are cached and applied to economy.
+  - **Global tooltips + toasts**: hover UI for quick tips; key actions show non-blocking notifications.
+- **Fixture economy**
+  - Shelves/counters/posters must be **purchased** before they can be placed (existing placed fixtures remain owned on load).
 
 ## Asset Specs
 ### Global Pixel Sizes
@@ -87,6 +94,7 @@ python main.py
 ## Feature Checklist
 ### Implemented
 - [x] Shop grid placement (shelves, counter, poster)
+- [x] Fixture purchase inventory (buy fixtures before placement)
 - [x] Customer traffic and purchases
 - [x] Roaming staff actor that auto-restocks shelves (with XP/level)
 - [x] Inventory ordering and shelf stocking
@@ -103,13 +111,16 @@ python main.py
 - [x] Save/load system
 - [x] Three named save slots (menu-driven)
 - [x] Dev console commands
+- [x] Player progression (XP/level/skill points)
+- [x] Skill tree (20+ nodes, prerequisites, cached modifiers)
+- [x] Sell price modifier applied consistently (UI + transactions)
 
 ### Not Implemented / Incomplete
 - [ ] Sell flow UI (buylist/retail sliders, confirmations, receipts)
 - [ ] Demand forecasting / smarter auto-restock policies (current: threshold-based staff restock)
 - [ ] Pack opening FX and pack artwork
 - [ ] Collection browser filters/sorting/search (rarity, name, owned, value)
-- [ ] Battle rewards + progression loop
+- [ ] Deeper progression effects (more skills wired into simulation beyond pricing/XP/fixture discount)
 - [ ] Placement rules / collision constraints
 - [ ] Accessibility options (text size, contrast)
 - [ ] Audio/visual feedback for key actions
