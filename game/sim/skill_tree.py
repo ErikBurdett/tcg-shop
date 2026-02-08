@@ -160,6 +160,27 @@ class SkillTreeState:
         return cls(ranks=ranks)
 
 
+def reconcile_skill_points(prog: PlayerProgression, skills: SkillTreeState) -> None:
+    """Reconcile unspent skill points from level and spent ranks.
+
+    Back-compat / safety:
+    - If saves were written with missing/incorrect `skill_points`, we recompute a consistent value.
+    - Current rule: 1 skill point per level gained (levels 2..N) => total earned = level-1.
+    """
+    level = max(1, int(prog.level))
+    earned = max(0, level - 1)
+    spent = 0
+    for v in skills.ranks.values():
+        try:
+            spent += max(0, int(v))
+        except Exception:
+            continue
+    expected_unspent = max(0, earned - spent)
+    # Only adjust if inconsistent to avoid needless churn.
+    if int(prog.skill_points) != expected_unspent:
+        prog.skill_points = expected_unspent
+
+
 def default_skill_tree() -> SkillTreeDef:
     """Return the game's default skill tree (>= 20 nodes)."""
 

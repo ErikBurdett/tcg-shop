@@ -15,7 +15,7 @@ from game.ui.theme import Theme
 from game.sim.inventory import Inventory, InventoryOrder
 from game.sim.shop import ShopLayout
 from game.sim.progression import PlayerProgression
-from game.sim.skill_tree import SkillTreeState, default_skill_tree
+from game.sim.skill_tree import SkillTreeState, default_skill_tree, reconcile_skill_points
 from game.sim.fixtures import FixtureInventory
 from game.cards.collection import CardCollection
 from game.cards.deck import Deck
@@ -55,6 +55,7 @@ class GameState:
     progression: PlayerProgression
     skills: SkillTreeState
     fixtures: FixtureInventory
+    shopkeeper_xp: int
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -71,10 +72,14 @@ class GameState:
             "progression": self.progression.to_dict(),
             "skills": self.skills.to_dict(),
             "fixtures": self.fixtures.to_dict(),
+            "shopkeeper_xp": int(self.shopkeeper_xp),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "GameState":
+        prog = PlayerProgression.from_dict(data.get("progression"))
+        skills = SkillTreeState.from_dict(data.get("skills"))
+        reconcile_skill_points(prog, skills)
         return cls(
             money=data["money"],
             day=data["day"],
@@ -86,9 +91,10 @@ class GameState:
             shop_layout=ShopLayout.from_dict(data["shop_layout"]),
             pending_orders=[InventoryOrder.from_dict(d) for d in data.get("pending_orders", [])],
             last_summary=DaySummary(**data["last_summary"]),
-            progression=PlayerProgression.from_dict(data.get("progression")),
-            skills=SkillTreeState.from_dict(data.get("skills")),
+            progression=prog,
+            skills=skills,
             fixtures=FixtureInventory.from_dict(data.get("fixtures")),
+            shopkeeper_xp=max(0, int(data.get("shopkeeper_xp", 0))),
         )
 
 
@@ -143,6 +149,7 @@ class GameApp:
             progression=PlayerProgression(),
             skills=SkillTreeState(),
             fixtures=FixtureInventory(),
+            shopkeeper_xp=0,
         )
 
     def _build_scenes(self) -> None:
