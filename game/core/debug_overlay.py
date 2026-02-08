@@ -18,6 +18,10 @@ class DebugFrameStats:
     draw_calls: int = 0  # counts pygame.draw.* calls (instrumented)
     text_hits: int = 0
     text_misses: int = 0
+    active_customers: int = 0
+    spawn_interval_s: float = 0.0
+    next_spawn_s: float = -1.0
+    tooltip_count: int = 0
 
 
 _ACTIVE: "DebugOverlay | None" = None
@@ -67,6 +71,10 @@ class DebugOverlay:
         self.frame.draw_calls = 0
         self.frame.text_hits = 0
         self.frame.text_misses = 0
+        self.frame.active_customers = 0
+        self.frame.spawn_interval_s = 0.0
+        self.frame.next_spawn_s = -1.0
+        self.frame.tooltip_count = 0
 
     def begin_input_timing(self) -> None:
         if not self.enabled:
@@ -108,12 +116,17 @@ class DebugOverlay:
 
         font = theme.font_small
         pad = 8
+        next_spawn = "-" if self.frame.next_spawn_s < 0 else f"{self.frame.next_spawn_s:0.2f}s"
         lines = [
             f"FPS: {self.frame.fps:0.1f}",
             f"dt: {self.frame.dt_ms:0.2f} ms",
             f"input: {self.frame.input_ms:0.2f} ms ({self.frame.events} ev)",
             f"update: {self.frame.update_ms:0.2f} ms",
             f"draw: {self.frame.draw_ms:0.2f} ms",
+            f"customers: {self.frame.active_customers}",
+            f"spawn interval: {self.frame.spawn_interval_s:0.2f}s",
+            f"next spawn: {next_spawn}",
+            f"tooltips: {self.frame.tooltip_count}",
             f"draw calls: {self.frame.draw_calls}",
             f"text cache: {self.frame.text_hits} hit / {self.frame.text_misses} miss",
             "toggle: F3",

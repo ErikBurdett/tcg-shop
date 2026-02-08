@@ -281,6 +281,7 @@ class GameApp:
                 self.debug.begin_draw_timing()
                 self._draw()
                 self.debug.end_draw_timing()
+                self._log_frame_spike_if_needed()
             else:
                 self.scenes[self.current_scene_key].update(dt)
                 self._draw()
@@ -363,6 +364,34 @@ class GameApp:
         self.debug.frame.text_hits = hits
         self.debug.frame.text_misses = misses
 
+        # Customer spawn metrics (computed only when debug overlay is on).
+        active_customers = 0
+        spawn_interval_s = 0.0
+        next_spawn_s = -1.0
+        shop = self.scenes.get("shop")
+        try:
+            if shop and hasattr(shop, "customers"):
+                customers = list(getattr(shop, "customers", []))
+                for c in customers:
+                    if not bool(getattr(c, "done", False)):
+                        active_customers += 1
+                schedule = list(getattr(shop, "customer_schedule", []))
+                spawned = int(getattr(shop, "spawned", 0))
+                phase_timer = float(getattr(shop, "phase_timer", 0.0))
+                if len(schedule) >= 2:
+                    spawn_interval_s = float(schedule[1] - schedule[0])
+                elif len(schedule) == 1:
+                    spawn_interval_s = float(getattr(shop, "day_duration", 60.0))
+                if schedule and 0 <= spawned < len(schedule):
+                    next_spawn_s = max(0.0, float(schedule[spawned]) - phase_timer)
+        except Exception:
+            active_customers = 0
+            spawn_interval_s = 0.0
+            next_spawn_s = -1.0
+        self.debug.frame.active_customers = active_customers
+        self.debug.frame.spawn_interval_s = spawn_interval_s
+        self.debug.frame.next_spawn_s = next_spawn_s
+
         extra = [
             f"Scene: {self.current_scene_key}",
             f"Money: ${self.state.money}",
@@ -372,6 +401,23 @@ class GameApp:
             f"Singles: {self.state.inventory.total_singles()}",
         ] + scene_lines
         self.debug.draw(self.screen, theme=self.theme, extra_lines=extra)
+
+    def _log_frame_spike_if_needed(self) -> None:
+        """Print one-line spike summary when dt exceeds threshold (debug on only)."""
+        if not self.debug_overlay or not self.debug.enabled:
+            return
+        f = self.debug.frame
+        if f.dt_ms <= 25.0:
+            return
+        print(
+            "[frame_spike] "
+            f"dt={f.dt_ms:0.2f}ms "
+            f"input={f.input_ms:0.2f}ms "
+            f"update={f.update_ms:0.2f}ms "
+            f"draw={f.draw_ms:0.2f}ms "
+            f"customers={f.active_customers} "
+            f"tooltips={f.tooltip_count}"
+        )
 
     def _draw_console(self) -> None:
         rect = pygame.Rect(12, 520, 520, 180)

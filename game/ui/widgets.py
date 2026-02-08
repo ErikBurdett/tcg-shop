@@ -6,6 +6,7 @@ from typing import Any, Callable
 import pygame
 
 from game.ui.theme import Theme
+from game.core.debug_overlay import _active as _debug_active
 
 
 class Button:
@@ -135,6 +136,9 @@ class Tooltip:
     def draw(self, surface: pygame.Surface, theme: Theme) -> None:
         if not self.text:
             return
+        active = _debug_active()
+        if active is not None:
+            active.frame.tooltip_count += 1
         padding = 6
         text_surf = theme.render_text(theme.font_small, self.text, theme.colors.text)
         rect = text_surf.get_rect(topleft=(self.pos[0] + 12, self.pos[1] + 12))
