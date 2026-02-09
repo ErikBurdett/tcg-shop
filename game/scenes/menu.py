@@ -155,7 +155,7 @@ class MenuScene(Scene):
     def draw(self, surface: pygame.Surface) -> None:
         super().draw(surface)
         # Title
-        title = self.theme.font_title.render("Card Shop Idle", True, self.theme.colors.text)
+        title = self.theme.render_text(self.theme.font_title, "Card Shop Idle", self.theme.colors.text)
         surface.blit(title, title.get_rect(centerx=surface.get_width() // 2, y=16))
 
         # Panels
@@ -163,7 +163,7 @@ class MenuScene(Scene):
         self.side_panel.draw(surface, self.theme)
 
         # Saves panel header
-        hdr = self.theme.font_large.render("Save Slots", True, self.theme.colors.text)
+        hdr = self.theme.render_text(self.theme.font_large, "Save Slots", self.theme.colors.text)
         surface.blit(hdr, (self.saves_panel.rect.x + 18, self.saves_panel.rect.y + 12))
 
         # Side panel content
@@ -200,13 +200,13 @@ class MenuScene(Scene):
         for line in welcome:
             font = self.theme.font if line and line != PROJECT_URL else self.theme.font_small
             color = self.theme.colors.text if line and line != PROJECT_URL else self.theme.colors.muted
-            text = font.render(line, True, color)
+            text = self.theme.render_text(font, line, color)
             surface.blit(text, (sx, sy))
             sy += 24 if font == self.theme.font else 18
 
         # Recent updates (commit-style notes)
         sy += 10
-        hdr2 = self.theme.font_large.render("Recent updates", True, self.theme.colors.text)
+        hdr2 = self.theme.render_text(self.theme.font_large, "Recent updates", self.theme.colors.text)
         surface.blit(hdr2, (sx, sy))
         sy += 28
 
@@ -214,7 +214,7 @@ class MenuScene(Scene):
         for note in RECENT_UPDATES[:5]:
             bullet = f"- {note}"
             for wrapped in wrap_lines(bullet, self.theme.font_small, max_w):
-                t = self.theme.font_small.render(wrapped, True, self.theme.colors.muted)
+                t = self.theme.render_text(self.theme.font_small, wrapped, self.theme.colors.muted)
                 surface.blit(t, (sx, sy))
                 sy += 18
 

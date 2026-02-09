@@ -111,3 +111,8 @@ def market_buy_price_single(rarity: str) -> int:
     """Market buy price for random singles (independent of player retail pricing)."""
     return max(1, int(MARKET_BUY_PRICES.get(str(rarity), 1)))
 
+
+def market_buy_price_product(product: str) -> int:
+    """Market buy price for sealed products (independent of player retail pricing)."""
+    return max(1, int(MARKET_BUY_PRICES.get(str(product), 1)))
+

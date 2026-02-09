@@ -38,7 +38,7 @@ SEED = 1337
 @dataclass
 class Prices:
     # "Retail-ish" defaults (lowered for a more playable early game economy).
-    # Note: wholesale ordering costs are derived from these via a simple margin model (~60% of retail).
+    # Note: wholesale ordering costs are a separate source of truth (supplier unit costs).
     booster: int = 4
     deck: int = 18
     single_common: int = 1
@@ -69,12 +69,20 @@ WHOLESALE_UNIT_COSTS: dict[str, int] = {
 # Market buy prices for random singles by rarity.
 # Critical: these are independent of player retail pricing (player cannot "move the market").
 MARKET_BUY_PRICES: dict[str, int] = {
+    # Sealed products
+    "booster": 2,
+    "deck": 11,
+    # Singles by rarity
     "common": 1,
     "uncommon": 2,
     "rare": 6,
     "epic": 12,
     "legendary": 28,
 }
+
+# Sell-back factor (player sells items/cards back to the market at a discount).
+# Kept below 1.0 to prevent buy->sell loops from generating profit.
+SELLBACK_FACTOR = 0.6
 
 # --- Staff progression XP awards ---
 # These govern the roaming staff/shopkeeper progression (shopkeeper_xp, shown under the sprite).

@@ -43,13 +43,47 @@ class Panel:
     def __init__(self, rect: pygame.Rect, title: str | None = None) -> None:
         self.rect = rect
         self.title = title
+        # Cached "chrome" surface (background + border + title).
+        # Keyed by size + title + theme identity so dragging (position changes) is cheap.
+        self._chrome_surface: pygame.Surface | None = None
+        self._chrome_key: tuple[int, int, str | None, int, tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]] | None = None
+        self._chrome_dirty: bool = True
+        # Debug/test hook: count how often we rebuild chrome.
+        self._chrome_builds: int = 0
 
-    def draw(self, surface: pygame.Surface, theme: Theme) -> None:
-        pygame.draw.rect(surface, theme.colors.panel, self.rect)
-        pygame.draw.rect(surface, theme.colors.border, self.rect, 2)
+    def mark_dirty(self) -> None:
+        """Force rebuilding the cached chrome on next draw."""
+        self._chrome_dirty = True
+
+    def _compute_chrome_key(self, theme: Theme) -> tuple[int, int, str | None, int, tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]:
+        w = max(1, int(self.rect.width))
+        h = max(1, int(self.rect.height))
+        # Font identity matters for the title.
+        font_id = id(theme.font)
+        return (w, h, self.title, font_id, tuple(theme.colors.panel), tuple(theme.colors.border), tuple(theme.colors.text))
+
+    def _ensure_chrome(self, theme: Theme) -> None:
+        key = self._compute_chrome_key(theme)
+        if not self._chrome_dirty and self._chrome_surface is not None and self._chrome_key == key:
+            return
+        w, h, _, _, _, _, _ = key
+        surf = pygame.Surface((w, h))
+        # Background + border
+        surf.fill(theme.colors.panel)
+        pygame.draw.rect(surf, theme.colors.border, pygame.Rect(0, 0, w, h), 2)
+        # Title
         if self.title:
             text = theme.render_text(theme.font, self.title, theme.colors.text)
-            surface.blit(text, (self.rect.x + 8, self.rect.y + 6))
+            surf.blit(text, (8, 6))
+        self._chrome_surface = surf
+        self._chrome_key = key
+        self._chrome_dirty = False
+        self._chrome_builds += 1
+
+    def draw(self, surface: pygame.Surface, theme: Theme) -> None:
+        self._ensure_chrome(theme)
+        if self._chrome_surface is not None:
+            surface.blit(self._chrome_surface, self.rect.topleft)
 
 
 class Label:
@@ -120,25 +154,6 @@ class ScrollList:
         surface.set_clip(clip)
 
 
-class Tooltip:
-    def __init__(self) -> None:
-        self.text: str | None = None
-        self.pos = (0, 0)
-
-    def show(self, text: str, pos: tuple[int, int]) -> None:
-        self.text = text
-        self.pos = pos
-
-    def hide(self) -> None:
-        self.text = None
-
-    def draw(self, surface: pygame.Surface, theme: Theme) -> None:
-        if not self.text:
-            return
-        padding = 6
-        text_surf = theme.render_text(theme.font_small, self.text, theme.colors.text)
-        rect = text_surf.get_rect(topleft=(self.pos[0] + 12, self.pos[1] + 12))
-        rect.inflate_ip(padding * 2, padding * 2)
-        pygame.draw.rect(surface, theme.colors.panel, rect)
-        pygame.draw.rect(surface, theme.colors.border, rect, 1)
-        surface.blit(text_surf, (rect.x + padding, rect.y + padding))
+#
+# NOTE: Tooltips are now centralized and cached in `game/ui/tooltip_manager.py`
+# and integrated via `game/core/scene.py`. Avoid ad-hoc tooltip rendering here.

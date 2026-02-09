@@ -66,6 +66,22 @@ ShopScene already updates drag/resize using `pygame.mouse.get_pos()` every frame
 
 ## Rendering performance fixes (avoid expensive work during drag/resize)
 
+### Panel chrome caching (dirty render)
+Files:
+- `game/ui/widgets.py`
+
+Change:
+- `Panel.draw()` now blits a cached surface containing the **panel background + border + title**.
+- The cache is rebuilt only when:
+  - the panel **size** changes (resizing),
+  - the **title** changes,
+  - the **theme/font identity** changes,
+  - or `Panel.mark_dirty()` is called (manual invalidation hook for “static content changed”).
+
+Effect:
+- Dragging panels (position-only rect changes) no longer triggers repeated chrome rendering work.
+- Helps keep frame pacing stable during continuous drag, especially when many panels are visible.
+
 ### Text rendering cache (no per-frame font.render for common UI)
 Files:
 - `game/ui/text_cache.py` (new)

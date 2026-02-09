@@ -165,6 +165,10 @@ The **Card Book** is the canonical view of the collection and is reused for:
 
 When you add filters/search later, implement them once in the Card Book view and reuse them.
 
+### Analytics & forecasting UI guidance
+- Store analytics in `GameState` (persisted), and keep computations **pure** (testable) in `game/sim/*`.
+- Throttle “forecast” computations to **≤ 1 Hz** and cache results for UI.
+
 ### Don’t create “hidden clickable” areas
 - If a panel can overlap another interactive area, enforce capture rules (overlay first).
 - Visually dim/disable background controls when a modal is open (roadmap item).
@@ -178,6 +182,12 @@ When you add filters/search later, implement them once in the Card Book view and
 - Disable buttons when the action can’t succeed.
 - Provide feedback text near the relevant panel (errors like “select a shelf first”, “not enough money”, etc.).
 - When adding new scrollable lists, ensure the mouse wheel only scrolls the **hovered** list (avoid scroll “leaking” to underlying panels).
+
+### Two-step confirmations for destructive actions
+For actions that remove value from the player (selling, deleting, etc.), prefer a lightweight “queue → confirm/cancel” flow:
+- First click queues the action and shows a **Confirm** button + a summary.
+- Confirm applies the change and writes a small receipt line into the panel.
+- Cancel clears the pending state.
 
 ## Resources
 - Pygame UI fundamentals: [Pygame docs](https://www.pygame.org/docs/)

@@ -43,4 +43,6 @@ This checklist is intended to verify **low input latency** and **stable frame ti
 - Ensure modal menu still captures input correctly when open.
 - In Packs tab, scroll the pack list rapidly; ensure no frame spikes and no scroll “leaks” to other panels.
 - Rapidly hover across buttons/lists with tooltips enabled; tooltip display should feel instant (no spikes).
+- In Sell tab, click a card row, queue a sell, cancel/confirm; ensure buttons disable correctly while a sale is pending and no double-sells occur.
+- In Manage tab, watch Restock Suggestions update at most once per second; dragging Inventory panel should keep the “Order Suggested” buttons aligned.
 

@@ -31,8 +31,10 @@ python main.py
 2. Run the shop day in the top-down scene.
 3. Manage inventory and pricing in Manage.
 4. Open boosters in Packs.
-5. Build a 20-card deck in Deck.
-6. Battle AI in Battle.
+5. Sell items/cards in Sell.
+6. Review stats and trends in Stats.
+7. Build a 20-card deck in Deck.
+8. Battle AI in Battle.
 7. Spend skill points and view modifiers in Skills.
 7. Save via the unified Menu button.
 
@@ -46,6 +48,7 @@ python main.py
 - **Order management**
   - Orders are **delivered ~30 seconds after purchase** (real-time), not “next day”.
   - Manage inventory shows an **Incoming (ETA)** queue.
+  - **Restock Suggestions**: a throttled (1 Hz) forecast recommends reorder quantities based on recent sales + current stock.
 - **Pricing + market**
   - More **MTG-like retail defaults** for boosters/decks/singles by rarity.
   - **Retail pricing modes**: **Absolute** dollars or **Markup %** (retail-only).
@@ -133,9 +136,11 @@ python main.py
 - [x] Player progression (XP/level/skill points)
 - [x] Skill tree (20+ nodes, prerequisites, cached modifiers)
 - [x] Sell price modifier applied consistently (UI + transactions)
+- [x] Sell flow UI (sell sealed items + cards back to market, confirmation + receipt)
+- [x] Demand forecasting v1 (sales tracking + restock suggestions + order suggested)
 
 ### Not Implemented / Incomplete
-- [ ] Sell flow UI (buylist/retail sliders, confirmations, receipts)
+- [ ] Advanced sell flow UI (buylist/retail sliders, per-card appraisal, receipts history)
 - [ ] Demand forecasting / smarter auto-restock policies (current: threshold-based staff restock)
 - [ ] Pack opening FX and pack artwork
 - [ ] Collection browser filters/sorting/search (rarity, name, owned, value)

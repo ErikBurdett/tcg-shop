@@ -44,8 +44,8 @@ class ResultsScene(Scene):
             button.draw(surface, self.theme)
         text = "Victory!" if self.win else "Defeat"
         reward = "+$15 and 1 pack" if self.win else "No reward"
-        title = self.theme.font_large.render(text, True, self.theme.colors.text)
+        title = self.theme.render_text(self.theme.font_large, text, self.theme.colors.text)
         surface.blit(title, (self.panel.rect.x + 40, self.panel.rect.y + 60))
-        sub = self.theme.font.render(reward, True, self.theme.colors.muted)
+        sub = self.theme.render_text(self.theme.font, reward, self.theme.colors.muted)
         surface.blit(sub, (self.panel.rect.x + 40, self.panel.rect.y + 120))
         self.draw_overlays(surface)

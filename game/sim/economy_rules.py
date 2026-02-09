@@ -55,3 +55,10 @@ def xp_from_battle_win(mods: Modifiers) -> int:
     k = 1.0 + max(0.0, float(mods.battle_xp_pct))
     return max(0, int(round(base * k)))
 
+
+def xp_from_sell(revenue: int, mods: Modifiers) -> int:
+    """XP from selling items/cards back to the market."""
+    base = max(0, int(revenue))
+    k = 1.0 + max(0.0, float(mods.sales_xp_pct))
+    return max(0, int(round(base * k)))
+

@@ -47,6 +47,10 @@ class DebugOverlay:
         self._t_input_start: float = 0.0
         self._t_update_start: float = 0.0
         self._t_draw_start: float = 0.0
+        # Rolling text render rate (approximated via text-cache misses).
+        self._text_miss_accum: int = 0
+        self._text_miss_time: float = 0.0
+        self._text_miss_per_s: float = 0.0
 
     def set_enabled(self, enabled: bool) -> None:
         enabled = bool(enabled)
@@ -62,6 +66,7 @@ class DebugOverlay:
         """Reset per-frame counters (call once per frame when enabled)."""
         if not self.enabled:
             return
+        _ = dt
         self.frame.fps = float(fps)
         self.frame.dt_ms = float(dt) * 1000.0
         self.frame.input_ms = 0.0
@@ -114,6 +119,14 @@ class DebugOverlay:
         if extra_lines is None:
             extra_lines = []
 
+        # Update rolling text miss rate (cache misses ~= actual `font.render` calls).
+        self._text_miss_accum += int(self.frame.text_misses)
+        self._text_miss_time += float(self.frame.dt_ms) / 1000.0
+        if self._text_miss_time >= 1.0:
+            self._text_miss_per_s = float(self._text_miss_accum) / max(0.0001, float(self._text_miss_time))
+            self._text_miss_accum = 0
+            self._text_miss_time = 0.0
+
         font = theme.font_small
         pad = 8
         next_spawn = "-" if self.frame.next_spawn_s < 0 else f"{self.frame.next_spawn_s:0.2f}s"
@@ -129,6 +142,7 @@ class DebugOverlay:
             f"tooltips: {self.frame.tooltip_count}",
             f"draw calls: {self.frame.draw_calls}",
             f"text cache: {self.frame.text_hits} hit / {self.frame.text_misses} miss",
+            f"text renders/s: {self._text_miss_per_s:0.1f} (miss/s)",
             "toggle: F3",
         ] + extra_lines
 

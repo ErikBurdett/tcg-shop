@@ -31,6 +31,7 @@ from game.assets import get_asset_manager
 from game.sim.economy_rules import fixture_cost
 from game.sim.skill_tree import Modifiers, get_default_skill_tree
 from game.sim.pricing import PricingSettings
+from game.sim.analytics import AnalyticsState
 
 
 @dataclass
@@ -58,6 +59,7 @@ class GameState:
     fixtures: FixtureInventory
     shopkeeper_xp: int
     pricing: PricingSettings
+    analytics: AnalyticsState
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -76,6 +78,7 @@ class GameState:
             "fixtures": self.fixtures.to_dict(),
             "shopkeeper_xp": int(self.shopkeeper_xp),
             "pricing": self.pricing.to_dict(),
+            "analytics": self.analytics.to_dict(),
         }
 
     @classmethod
@@ -99,6 +102,7 @@ class GameState:
             fixtures=FixtureInventory.from_dict(data.get("fixtures")),
             shopkeeper_xp=max(0, int(data.get("shopkeeper_xp", 0))),
             pricing=PricingSettings.from_dict(data.get("pricing")),
+            analytics=AnalyticsState.from_dict(data.get("analytics")),
         )
 
 
@@ -155,6 +159,7 @@ class GameApp:
             fixtures=FixtureInventory(),
             shopkeeper_xp=0,
             pricing=PricingSettings(),
+            analytics=AnalyticsState(),
         )
 
     def _build_scenes(self) -> None:
@@ -213,6 +218,18 @@ class GameApp:
             deliver_at = order.deliver_at or 0.0
             if deliver_at <= now:
                 self.state.inventory.apply_order(order)
+                # Analytics: record delivery (per product type).
+                day = int(self.state.day)
+                if int(order.boosters) > 0:
+                    self.state.analytics.record_order_delivered(day=day, t=now, product="booster", qty=int(order.boosters))
+                    self.state.analytics.log(day=day, t=now, kind="delivery", message=f"Delivered boosters x{int(order.boosters)}")
+                if int(order.decks) > 0:
+                    self.state.analytics.record_order_delivered(day=day, t=now, product="deck", qty=int(order.decks))
+                    self.state.analytics.log(day=day, t=now, kind="delivery", message=f"Delivered decks x{int(order.decks)}")
+                for r, amt in (order.singles or {}).items():
+                    if int(amt) > 0:
+                        self.state.analytics.record_order_delivered(day=day, t=now, product=f"single_{r}", qty=int(amt))
+                        self.state.analytics.log(day=day, t=now, kind="delivery", message=f"Delivered {r} singles x{int(amt)}")
             else:
                 remaining.append(order)
         self.state.pending_orders = remaining

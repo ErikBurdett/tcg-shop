@@ -108,7 +108,7 @@ class BattleScene(Scene):
         super().draw(surface)
         self.panel.draw(surface, self.theme)
         if not self.battle:
-            text = self.theme.font.render("Build a 20-card deck to battle.", True, self.theme.colors.text)
+            text = self.theme.render_text(self.theme.font, "Build a 20-card deck to battle.", self.theme.colors.text)
             surface.blit(text, (60, 140))
             self.draw_overlays(surface)
             return
@@ -128,12 +128,16 @@ class BattleScene(Scene):
 
     def _draw_player_info(self, surface: pygame.Surface) -> None:
         b = self.battle
-        text = self.theme.font_small.render(
-            f"HP {b.player_hp} | Mana {b.player_mana}/{b.player_max_mana}", True, self.theme.colors.text
+        text = self.theme.render_text(
+            self.theme.font_small,
+            f"HP {b.player_hp} | Mana {b.player_mana}/{b.player_max_mana}",
+            self.theme.colors.text,
         )
         surface.blit(text, (60, 600))
-        ai_text = self.theme.font_small.render(
-            f"Enemy HP {b.ai_hp} | Mana {b.ai_mana}/{b.ai_max_mana}", True, self.theme.colors.text
+        ai_text = self.theme.render_text(
+            self.theme.font_small,
+            f"Enemy HP {b.ai_hp} | Mana {b.ai_mana}/{b.ai_max_mana}",
+            self.theme.colors.text,
         )
         surface.blit(ai_text, (60, 120))
 

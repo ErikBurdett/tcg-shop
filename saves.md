@@ -26,6 +26,7 @@ Game state includes:
 - money, day, time_seconds
 - retail prices (`prices`)
 - retail pricing mode + markup settings (`pricing`)
+- analytics + logs (`analytics`)
 - inventory + pending orders
 - collection + deck
 - shop layout + shelf stocks (including any listed card IDs)

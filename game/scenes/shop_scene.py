@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import pygame
 
@@ -20,6 +21,7 @@ from game.config import (
 from game.core.scene import Scene
 from game.sim.economy import customer_spawn_interval, choose_purchase
 from game.sim.economy_rules import effective_sale_price, xp_from_sale
+from game.sim.economy_rules import xp_from_sell
 from game.sim.skill_tree import get_default_skill_tree
 from game.sim.economy_rules import fixture_cost
 from game.sim.skill_tree import SkillNodeDef
@@ -37,6 +39,7 @@ from game.config import Prices
 from game.sim.skill_tree import Modifiers
 from game.sim.packs_catalog import PACK_TYPES, pack_count
 from game.sim.staff_xp import StaffXpEventType, award_staff_xp_total
+from game.sim.forecast import RestockSuggestion, compute_restock_suggestions, top_stockout_shelves
 
 MINI_GRID = (14, 8)
 MINI_TILE = 42
@@ -73,16 +76,38 @@ class ShopScene(Scene):
         self.spawned = 0
         self.selected_object = "shelf"
         self.current_tab = "shop"
-        self.tabs = ["shop", "packs", "deck", "manage", "skills", "battle"]
+        self.tabs = ["shop", "packs", "sell", "deck", "manage", "stats", "skills", "battle"]
         self.tab_buttons: list[Button] = []
         self.revealed_cards: list[str] = []
         self.reveal_index = 0
+        # Pack opening animation state (Packs tab)
+        self._pack_open_queue: int = 0
+        self._pack_anim_stage: str = "idle"  # idle|shake|flash|reveal|done
+        self._pack_anim_stage_t: float = 0.0
+        self._pack_anim_reveal_t: float = 0.0
+        self._pack_anim_revealed: int = 0
+        self._pack_anim_cooldown: float = 0.0  # prevents starting multiple packs in one frame when skipping
+        self._pack_surf: pygame.Surface | None = None
+        self._pack_flash_surf: pygame.Surface | None = None
+        self._pack_card_back: pygame.Surface | None = None
+        self._pack_card_faces: list[pygame.Surface] = []
+        self._pack_slots_alpha: int = 0
         # Packs tab state
         self.pack_list = ScrollList(pygame.Rect(0, 0, 100, 100), [])
         self.selected_pack_id: str = "booster"
         self._pack_counts_snapshot: dict[str, int] = {}
         self._pack_row_text: dict[str, str] = {}
         self._pack_row_surf: dict[str, pygame.Surface] = {}
+        # Sell tab state
+        self.sell_mode: str = "items"  # "items" | "cards"
+        self.sell_item: str = "booster"  # "booster" | "deck"
+        self.sell_rarity_index: int = 0
+        self._sell_pending: dict[str, object] | None = None
+        self._sell_receipt_lines: list[str] = []
+        # Forecast/analytics UI cache (throttled).
+        self._forecast_next_update_t: float = 0.0
+        self._forecast_suggestions: list[RestockSuggestion] = []
+        self._forecast_stockouts: list[tuple[str, int]] = []
         self._top_bar_height = 48
         self._panel_padding = 16
         # UI and shop viewport offsets (shop area is centered within available space)
@@ -99,6 +124,7 @@ class ShopScene(Scene):
         self.book_panel = Panel(pygame.Rect(0, 0, 540, 520), "Card Book")
         self.deck_panel = Panel(pygame.Rect(0, 0, 320, 420), "Deck")
         self.skills_panel = Panel(pygame.Rect(0, 0, 720, 560), "Skills")
+        self.stats_panel = Panel(pygame.Rect(0, 0, 820, 560), "Analytics")
         self.shelf_list = ScrollList(pygame.Rect(0, 0, 100, 100), [])
         self._shelf_value_cache: dict[str, int] = {}
         self.selected_shelf_key: str | None = None
@@ -269,6 +295,12 @@ class ShopScene(Scene):
                 max(720, int(width * 0.62)),
                 max(520, int(height * 0.62)),
             )
+            stats_rect = pygame.Rect(
+                self._panel_padding,
+                base_top + self._panel_padding,
+                max(820, int(width * 0.70)),
+                max(520, int(height * 0.62)),
+            )
         else:
             order_rect = self._clamp_rect(self.order_panel.rect.copy(), width, height)
             stock_rect = self._clamp_rect(self.stock_panel.rect.copy(), width, height)
@@ -279,6 +311,7 @@ class ShopScene(Scene):
             deck_rect = self._clamp_rect(self.deck_panel.rect.copy(), width, height)
             shop_rect = self._clamp_rect(self.shop_panel.rect.copy(), width, height)
             skills_rect = self._clamp_rect(self.skills_panel.rect.copy(), width, height)
+            stats_rect = self._clamp_rect(self.stats_panel.rect.copy(), width, height)
         self.order_panel = Panel(order_rect, "Ordering")
         self.stock_panel = Panel(stock_rect, "Stocking")
         self.inventory_panel = Panel(inv_rect, "Inventory")
@@ -286,6 +319,7 @@ class ShopScene(Scene):
         self.deck_panel = Panel(deck_rect, "Deck")
         self.shop_panel = Panel(shop_rect, "Shop")
         self.skills_panel = Panel(skills_rect, "Skills")
+        self.stats_panel = Panel(stats_rect, "Analytics")
         self.shelf_list = ScrollList(list_rect, self.shelf_list.items)
         # Center the unified menu modal on resize.
         self.menu_panel = Panel(anchor_rect(self.app.screen, (420, 260), "center"), "Menu")
@@ -318,6 +352,9 @@ class ShopScene(Scene):
             min_h = 420
         elif target == "skills":
             min_w = 600
+            min_h = 420
+        elif target == "stats":
+            min_w = 620
             min_h = 420
         rect.width = max(min_w, min(rect.width, width - 40))
         rect.height = max(min_h, min(rect.height, height - self._top_bar_height - 40))
@@ -435,12 +472,22 @@ class ShopScene(Scene):
                     b.rect = rect
                     return
 
+        def set_rect_by_prefix(prefix: str, rect: pygame.Rect, *, contains: str | None = None) -> None:
+            for b in self.buttons:
+                if b.text.startswith(prefix) and (contains is None or contains in b.text):
+                    b.rect = rect
+                    return
+
         if self.current_tab == "shop":
             x = self.order_panel.rect.x + 20
             y = self.order_panel.rect.y + 40
-            set_rect_by_text("Shelf", pygame.Rect(x, y, bw, 30))
-            set_rect_by_text("Counter", pygame.Rect(x, y + 36, bw, 30))
-            set_rect_by_text("Poster", pygame.Rect(x, y + 72, bw, 30))
+            # Text includes counts/costs; match by prefix.
+            set_rect_by_prefix("Place Shelf", pygame.Rect(x, y, bw, 30))
+            set_rect_by_prefix("Place Counter", pygame.Rect(x, y + 36, bw, 30))
+            set_rect_by_prefix("Place Poster", pygame.Rect(x, y + 72, bw, 30))
+            set_rect_by_prefix("Buy Shelf", pygame.Rect(x, y + 118, bw, 30))
+            set_rect_by_prefix("Buy Counter", pygame.Rect(x, y + 154, bw, 30))
+            set_rect_by_prefix("Buy Poster", pygame.Rect(x, y + 190, bw, 30))
             return
 
         if self.current_tab == "packs":
@@ -474,6 +521,46 @@ class ShopScene(Scene):
                 if b.text.startswith("Buy Random "):
                     b.rect = pygame.Rect(x, y + 194, bw, 30)
                     break
+            return
+
+        if self.current_tab == "sell":
+            x = self.order_panel.rect.x + 20
+            y = self.order_panel.rect.y + 40
+            half = (bw - 10) // 2
+            set_rect_by_text("Sell Items", pygame.Rect(x, y, half, 30))
+            set_rect_by_text("Sell Cards", pygame.Rect(x + half + 10, y, half, 30))
+            # The rest are dynamic; just lay out by prefix.
+            for b in self.buttons:
+                if b.text.startswith("Item:"):
+                    b.rect = pygame.Rect(x, y + 40, bw, 30)
+                elif b.text.startswith("Rarity -"):
+                    b.rect = pygame.Rect(x, y + 40, half, 30)
+                elif b.text.startswith("Rarity +"):
+                    b.rect = pygame.Rect(x + half + 10, y + 40, half, 30)
+                elif b.text.startswith("Sell x1"):
+                    b.rect = pygame.Rect(x, y + 80, bw, 32)
+                elif b.text.startswith("Sell x5"):
+                    b.rect = pygame.Rect(x, y + 118, bw, 32)
+                elif b.text == "Sell All":
+                    b.rect = pygame.Rect(x, y + 156, bw, 32)
+                elif b.text.startswith("Sell Random"):
+                    # two buttons stacked
+                    if b.text.endswith("x1"):
+                        b.rect = pygame.Rect(x, y + 80, bw, 32)
+                    else:
+                        b.rect = pygame.Rect(x, y + 118, bw, 32)
+                elif b.text.startswith("Sell Selected x1"):
+                    b.rect = pygame.Rect(x, y + 166, bw, 32)
+                elif b.text.startswith("Sell Selected x5"):
+                    b.rect = pygame.Rect(x, y + 204, bw, 32)
+                elif b.text.startswith("Sell Selected All"):
+                    b.rect = pygame.Rect(x, y + 242, bw, 32)
+                elif b.text == "Cancel":
+                    by = self.order_panel.rect.bottom - 58
+                    b.rect = pygame.Rect(x, by, half, 34)
+                elif b.text == "Confirm":
+                    by = self.order_panel.rect.bottom - 58
+                    b.rect = pygame.Rect(x + half + 10, by, half, 34)
             return
 
         if self.current_tab == "manage":
@@ -516,6 +603,15 @@ class ShopScene(Scene):
             set_rect_by_text("Prev Shelf", pygame.Rect(stock_x, stock_y + 344, stock_w, 28))
             set_rect_by_text("Next Shelf", pygame.Rect(stock_x, stock_y + 376, stock_w, 28))
             set_rect_by_text("Clear Selection", pygame.Rect(stock_x, stock_y + 408, stock_w, 28))
+
+            # Suggested order buttons live in the inventory panel.
+            sx = self.inventory_panel.rect.x + 20
+            sy = self.inventory_panel.rect.bottom - 120
+            idx = 0
+            for b in self.buttons:
+                if b.text.startswith("Order Suggested:"):
+                    b.rect = pygame.Rect(sx, sy + idx * 36, self.inventory_panel.rect.width - 40, 32)
+                    idx += 1
 
             if self.manage_card_book_open:
                 book = self.book_panel.rect
@@ -585,12 +681,12 @@ class ShopScene(Scene):
         elif self.current_tab == "packs":
             x = self.order_panel.rect.x + 20
             y = self.order_panel.rect.y + 40
-            open1 = Button(pygame.Rect(x, y, button_width, 34), "Open Pack", lambda: self._open_selected_packs(1))
-            open5 = Button(pygame.Rect(x, y + 46, button_width, 30), "Open x5", lambda: self._open_selected_packs(5))
+            open1 = Button(pygame.Rect(x, y, button_width, 34), "Open Pack", lambda: self._queue_open_selected_packs(1))
+            open5 = Button(pygame.Rect(x, y + 46, button_width, 30), "Open x5", lambda: self._queue_open_selected_packs(5))
             reveal = Button(pygame.Rect(x, y + 82, button_width, 30), "Reveal All", self._reveal_all)
             open1.tooltip = "Open 1 pack of the selected type."
-            open5.tooltip = "Open up to 5 packs of the selected type (safe summary)."
-            reveal.tooltip = "Reveal all cards in the currently displayed pack."
+            open5.tooltip = "Queue up to 5 pack openings of the selected type."
+            reveal.tooltip = "Reveal all cards in the currently displayed pack (or hold Space)."
             # Pack list occupies remaining space in the order panel.
             top = y + 140
             self.pack_list.rect = pygame.Rect(x, top, button_width, max(40, self.order_panel.rect.bottom - top - 18))
@@ -599,7 +695,76 @@ class ShopScene(Scene):
             count = self._pack_count(self.selected_pack_id)
             open1.enabled = count > 0
             open5.enabled = count > 0
-            reveal.enabled = bool(self.revealed_cards) and self.reveal_index < len(self.revealed_cards)
+            reveal.enabled = bool(self.revealed_cards) and (self.reveal_index < len(self.revealed_cards) or self._pack_anim_active())
+        elif self.current_tab == "sell":
+            x = self.order_panel.rect.x + 20
+            y = self.order_panel.rect.y + 40
+            half = (button_width - 10) // 2
+            mode_items = Button(pygame.Rect(x, y, half, 30), "Sell Items", lambda: self._set_sell_mode("items"))
+            mode_cards = Button(pygame.Rect(x + half + 10, y, half, 30), "Sell Cards", lambda: self._set_sell_mode("cards"))
+            mode_items.tooltip = "Sell sealed inventory (boosters/decks) back to the market."
+            mode_cards.tooltip = "Sell cards from your collection back to the market."
+            self.buttons = [mode_items, mode_cards]
+            y2 = y + 40
+            if self.sell_mode == "items":
+                item_btn = Button(pygame.Rect(x, y2, button_width, 30), f"Item: {self.sell_item.title()}", self._toggle_sell_item)
+                item_btn.tooltip = "Toggle between selling Boosters or Decks."
+                self.buttons.append(item_btn)
+                y3 = y2 + 40
+                sell1 = Button(pygame.Rect(x, y3, button_width, 32), "Sell x1", lambda: self._queue_sell_items(1))
+                sell5 = Button(pygame.Rect(x, y3 + 38, button_width, 32), "Sell x5", lambda: self._queue_sell_items(5))
+                sellall = Button(pygame.Rect(x, y3 + 76, button_width, 32), "Sell All", self._queue_sell_items_all)
+                self.buttons.extend([sell1, sell5, sellall])
+            else:
+                rarity = RARITIES[self.sell_rarity_index]
+                rminus = Button(pygame.Rect(x, y2, half, 30), "Rarity -", self._sell_prev_rarity)
+                rplus = Button(pygame.Rect(x + half + 10, y2, half, 30), "Rarity +", self._sell_next_rarity)
+                rminus.tooltip = "Change rarity filter for random sell."
+                rplus.tooltip = "Change rarity filter for random sell."
+                self.buttons.extend([rminus, rplus])
+                y3 = y2 + 40
+                rand1 = Button(
+                    pygame.Rect(x, y3, button_width, 32),
+                    f"Sell Random {rarity.title()} x1",
+                    lambda r=rarity: self._queue_sell_random_rarity(r, 1),
+                )
+                rand5 = Button(
+                    pygame.Rect(x, y3 + 38, button_width, 32),
+                    f"Sell Random {rarity.title()} x5",
+                    lambda r=rarity: self._queue_sell_random_rarity(r, 5),
+                )
+                sel1 = Button(pygame.Rect(x, y3 + 86, button_width, 32), "Sell Selected x1", lambda: self._queue_sell_selected_card(1))
+                sel5 = Button(pygame.Rect(x, y3 + 124, button_width, 32), "Sell Selected x5", lambda: self._queue_sell_selected_card(5))
+                selall = Button(pygame.Rect(x, y3 + 162, button_width, 32), "Sell Selected All", self._queue_sell_selected_card_all)
+                self.buttons.extend([rand1, rand5, sel1, sel5, selall])
+
+            # Confirm/cancel row (only visible when a pending sell exists).
+            if self._sell_pending:
+                by = self.order_panel.rect.bottom - 58
+                cancel_btn = Button(pygame.Rect(x, by, half, 34), "Cancel", self._cancel_sell_pending)
+                confirm_btn = Button(pygame.Rect(x + half + 10, by, half, 34), "Confirm", self._confirm_sell_pending)
+                cancel_btn.tooltip = "Cancel the pending sell."
+                confirm_btn.tooltip = "Confirm the pending sell and apply changes."
+                self.buttons.extend([cancel_btn, confirm_btn])
+
+            # Enable/disable buttons based on availability.
+            inv = self.app.state.inventory
+            if self.sell_mode == "items":
+                available = inv.booster_packs if self.sell_item == "booster" else inv.decks
+                for b in self.buttons:
+                    if b.text.startswith("Sell x") or b.text == "Sell All":
+                        b.enabled = int(available) > 0 and not bool(self._sell_pending)
+            else:
+                rarity = RARITIES[self.sell_rarity_index]
+                can_rand = any(
+                    CARD_INDEX[cid].rarity == rarity and self.app.state.collection.get(cid) > self.app.state.deck.cards.get(cid, 0)
+                    for cid in self.app.state.collection.cards.keys()
+                )
+                for b in self.buttons:
+                    if b.text.startswith("Sell Random"):
+                        b.enabled = can_rand and not bool(self._sell_pending)
+                    if b.text.startswith("Sell Selected"):
+                        b.enabled = bool(self.selected_card_id) and not bool(self._sell_pending) and self._can_sell_selected_card()
         elif self.current_tab == "manage":
             order_x = self.order_panel.rect.x + 20
             order_y = self.order_panel.rect.y + 40
@@ -655,6 +820,22 @@ class ShopScene(Scene):
                 Button(pygame.Rect(stock_x, stock_y + 376, stock_width, 28), "Next Shelf", lambda: self._select_adjacent_shelf(1)),
                 Button(pygame.Rect(stock_x, stock_y + 408, stock_width, 28), "Clear Selection", self._clear_shelf_selection),
             ]
+            # Restock suggestions (throttled; uses analytics).
+            sx = self.inventory_panel.rect.x + 20
+            sy = self.inventory_panel.rect.bottom - 120
+            for i, sug in enumerate(self._forecast_suggestions[:2]):
+                q = int(sug.recommended_qty)
+                if q <= 0:
+                    continue
+                cost = self._wholesale_cost(sug.product, q)
+                btn = Button(
+                    pygame.Rect(sx, sy + i * 36, self.inventory_panel.rect.width - 40, 32),
+                    f"Order Suggested: {sug.product} x{q} (${cost})",
+                    lambda p=sug.product, amt=q: self._order_suggested(p, amt),
+                )
+                btn.enabled = (self.app.state.money >= cost) and (not self.menu_open)
+                btn.tooltip = f"Suggested reorder based on last 3 days sales: {sug.reason}. Current total stock: {sug.current_total_stock}."
+                self.buttons.append(btn)
             for b in self.buttons:
                 if b.text.startswith("Order "):
                     b.tooltip = "Place an order (delivers after ~30 seconds of real time)."
@@ -841,6 +1022,58 @@ class ShopScene(Scene):
         if r.leveled_up:
             self.toasts.push(f"Staff level up! Lv {r.new_level}")
 
+    def _update_forecast_cache(self) -> None:
+        now = float(self.app.state.time_seconds)
+        if now < float(self._forecast_next_update_t):
+            return
+        self._forecast_next_update_t = now + 1.0
+        a = self.app.state.analytics
+        self._forecast_suggestions = compute_restock_suggestions(
+            a,
+            day=int(self.app.state.day),
+            inv=self.app.state.inventory,
+            shelves=self.app.state.shop_layout.shelf_stocks,
+            lead_time_seconds=30.0,
+            window_days=3,
+            max_suggestions=4,
+        )
+        self._forecast_stockouts = top_stockout_shelves(a, day=int(self.app.state.day), window_days=3, limit=5)
+        # Keep buttons in sync (suggested order buttons are dynamic).
+        if self.current_tab == "manage":
+            self._build_buttons()
+
+    def _order_suggested(self, product: str, qty: int) -> None:
+        q = max(0, int(qty))
+        if q <= 0:
+            return
+        cost = self._wholesale_cost(product, q)
+        if cost <= 0:
+            return
+        if self.app.state.money < cost:
+            self.toasts.push(f"Not enough money (${cost}).")
+            return
+        self.app.state.money -= cost
+        singles: dict[str, int] = {}
+        boosters = 0
+        decks = 0
+        if product == "booster":
+            boosters = q
+        elif product == "deck":
+            decks = q
+        elif product.startswith("single_"):
+            r = product.replace("single_", "")
+            singles[r] = q
+        else:
+            return
+        order = InventoryOrder(boosters, decks, singles, cost, 0, self.app.state.time_seconds + 30.0)
+        self.app.state.pending_orders.append(order)
+        self.app.state.analytics.record_order_placed(day=int(self.app.state.day), t=float(self.app.state.time_seconds), product=product, qty=int(q))
+        self.app.state.analytics.log(
+            day=int(self.app.state.day), t=float(self.app.state.time_seconds), kind="order", message=f"Ordered suggested {product} x{q} (${cost})"
+        )
+        self.toasts.push(f"Ordered {product} x{q} (${cost}).")
+        self._build_buttons()
+
     def _refresh_pack_list(self) -> None:
         # Rebuild list items and cache row surfaces only when a label/count changes.
         snap: dict[str, int] = {}
@@ -867,53 +1100,137 @@ class ShopScene(Scene):
         self.selected_pack_id = str(item.key)
         self._build_buttons()
 
-    def _open_selected_packs(self, n: int) -> None:
-        pack_id = self.selected_pack_id
-        available = self._pack_count(pack_id)
-        if available <= 0:
-            self.toasts.push("No packs available.")
-            return
-        k = max(1, min(int(n), 5))
-        k = min(k, available)
-        if pack_id != "booster":
+    def _pack_anim_active(self) -> bool:
+        return self._pack_anim_stage in {"shake", "flash", "reveal"}
+
+    def _pack_busy(self) -> bool:
+        # Busy when an animation is playing, or queued openings exist.
+        # (Stage "done" is not busy: it just shows the last opened pack.)
+        return self._pack_anim_active() or self._pack_open_queue > 0
+
+    def _queue_open_selected_packs(self, count: int) -> None:
+        """Queue pack openings; packs are opened one-by-one with animation for smoothness."""
+        if self.selected_pack_id != "booster":
             self.toasts.push("That pack type isn't implemented yet.")
             return
+        n = max(0, int(count))
+        if n <= 0:
+            return
+        available = self._pack_count("booster")
+        free = max(0, int(available) - int(self._pack_open_queue))
+        if free <= 0:
+            self.toasts.push("No packs available.")
+            return
+        n = min(n, free)
+        self._pack_open_queue += n
+        if self._pack_anim_stage in {"idle", "done"} and self._pack_anim_cooldown <= 0.0:
+            self._start_next_pack_open()
+        self._build_buttons()
 
-        total_cards = 0
-        last_pack: list[str] = []
-        opened = 0
-        for _ in range(k):
-            if self.app.state.inventory.booster_packs <= 0:
-                break
-            self.app.state.inventory.booster_packs -= 1
-            cards = open_booster(self.app.rng)
-            last_pack = cards
-            total_cards += len(cards)
-            opened += 1
-            for cid in cards:
-                self.app.state.collection.add(cid, 1)
+    def _start_next_pack_open(self) -> None:
+        if self._pack_open_queue <= 0:
+            return
+        if self.selected_pack_id != "booster":
+            self._pack_open_queue = 0
+            return
+        if self._pack_count("booster") <= 0:
+            self._pack_open_queue = 0
+            self._build_buttons()
+            return
 
-        if opened > 0:
-            self._award_staff_xp("pack_open", opened)
+        self._pack_open_queue -= 1
+        self.app.state.inventory.booster_packs = max(0, int(self.app.state.inventory.booster_packs) - 1)
 
-        if k == 1:
-            self.revealed_cards = last_pack
-            self.reveal_index = 0
-        else:
-            # Safe: avoid rendering 25 cards; show last pack revealed instantly.
-            self.revealed_cards = last_pack
-            self.reveal_index = len(last_pack)
-            self.toasts.push(f"Opened {k} packs (+{total_cards} cards).")
+        cards = list(open_booster(self.app.rng))
+        self.revealed_cards = list(cards)
+        self.reveal_index = 0
 
+        # Add to collection immediately (gameplay state), but render surfaces once for animation.
+        for cid in cards:
+            self.app.state.collection.add(cid, 1)
+        self.app.state.analytics.record_pack_open(day=int(self.app.state.day), t=float(self.app.state.time_seconds), packs=1)
+        self.app.state.analytics.log(
+            day=int(self.app.state.day),
+            t=float(self.app.state.time_seconds),
+            kind="pack_open",
+            message="Opened pack x1",
+        )
+        self._award_staff_xp("pack_open", 1)
+
+        self._build_pack_anim_surfaces(cards)
+        self._pack_anim_stage = "shake"
+        self._pack_anim_stage_t = 0.0
+        self._pack_anim_reveal_t = 0.0
+        self._pack_anim_revealed = 0
+        self._pack_slots_alpha = 0
+        self._pack_anim_cooldown = 0.05
         self._refresh_pack_list()
         self._build_buttons()
 
+    def _build_pack_anim_surfaces(self, cards: list[str]) -> None:
+        """Pre-render all pack animation surfaces for smooth playback."""
+        # Pack image surface.
+        pack_w, pack_h = 180, 120
+        pack = pygame.Surface((pack_w, pack_h), pygame.SRCALPHA)
+        pack.fill(self.theme.colors.panel_alt)
+        pygame.draw.rect(pack, self.theme.colors.border, pack.get_rect(), 2)
+        pygame.draw.rect(pack, self.theme.colors.accent, pack.get_rect().inflate(-10, -10), 2)
+        t1 = self.theme.render_text(self.theme.font, "Booster Pack", self.theme.colors.text)
+        t2 = self.theme.render_text(self.theme.font_small, "Hold Space to skip", self.theme.colors.muted)
+        pack.blit(t1, (10, 12))
+        pack.blit(t2, (10, 50))
+        self._pack_surf = pack
+
+        flash = pygame.Surface((pack_w + 40, pack_h + 40), pygame.SRCALPHA)
+        flash.fill((255, 255, 255, 255))
+        self._pack_flash_surf = flash
+
+        back = pygame.Surface((120, 160), pygame.SRCALPHA)
+        back.fill(self.theme.colors.panel_alt)
+        pygame.draw.rect(back, self.theme.colors.border, back.get_rect(), 2)
+        q = self.theme.render_text(self.theme.font, "?", self.theme.colors.muted)
+        back.blit(q, (back.get_width() // 2 - q.get_width() // 2, back.get_height() // 2 - q.get_height() // 2))
+        self._pack_card_back = back
+
+        asset_mgr = get_asset_manager()
+        faces: list[pygame.Surface] = []
+        for cid in list(cards)[:5]:
+            card = CARD_INDEX[cid]
+            face = pygame.Surface((120, 160), pygame.SRCALPHA)
+            bg = asset_mgr.create_card_background(card.rarity, (120, 160))
+            face.blit(bg, (0, 0))
+            sprite = asset_mgr.get_card_sprite(cid, (64, 64))
+            if sprite:
+                face.blit(sprite, (28, 15))
+            rarity_color = getattr(self.theme.colors, f"card_{card.rarity}")
+            draw_glow_border(face, face.get_rect(), rarity_color, border_width=2, glow_radius=4, glow_alpha=80)
+            name = self.theme.render_text(self.theme.font_small, card.name[:12], self.theme.colors.text)
+            face.blit(name, (6, 4))
+            faces.append(face)
+        self._pack_card_faces = faces
+
+    def _skip_pack_anim(self) -> None:
+        """Instantly reveal the current pack (used for space-hold skip and Reveal All)."""
+        if not self.revealed_cards:
+            return
+        self._pack_anim_stage = "done"
+        self._pack_anim_stage_t = 0.0
+        self._pack_anim_reveal_t = 0.0
+        self._pack_anim_revealed = len(self.revealed_cards[:5])
+        self.reveal_index = len(self.revealed_cards[:5])
+        self._pack_slots_alpha = 255
+
+    def _open_selected_packs(self, n: int) -> None:
+        # Back-compat: older buttons call this. Route to the new queued animation flow.
+        k = max(1, min(int(n), 10))
+        self._queue_open_selected_packs(k)
+
     def _open_pack(self) -> None:
         # Legacy entry point (older UI); open selected.
-        self._open_selected_packs(1)
+        self._queue_open_selected_packs(1)
 
     def _reveal_all(self) -> None:
-        self.reveal_index = len(self.revealed_cards)
+        self._skip_pack_anim()
 
     def _start_battle(self) -> None:
         if self.app.state.deck.is_valid():
@@ -965,6 +1282,205 @@ class ShopScene(Scene):
         else:
             self.app.state.pricing.mode = "absolute"
             self.toasts.push("Pricing mode: Absolute")
+        self._build_buttons()
+
+    def _set_sell_mode(self, mode: str) -> None:
+        if mode not in {"items", "cards"}:
+            return
+        self.sell_mode = mode
+        self._sell_pending = None
+        self._build_buttons()
+
+    def _toggle_sell_item(self) -> None:
+        self.sell_item = "deck" if self.sell_item == "booster" else "booster"
+        self._sell_pending = None
+        self._build_buttons()
+
+    def _sell_prev_rarity(self) -> None:
+        self.sell_rarity_index = (self.sell_rarity_index - 1) % len(RARITIES)
+        self._sell_pending = None
+        self._build_buttons()
+
+    def _sell_next_rarity(self) -> None:
+        self.sell_rarity_index = (self.sell_rarity_index + 1) % len(RARITIES)
+        self._sell_pending = None
+        self._build_buttons()
+
+    def _can_sell_selected_card(self) -> bool:
+        if not self.selected_card_id:
+            return False
+        owned = self.app.state.collection.get(self.selected_card_id)
+        in_deck = self.app.state.deck.cards.get(self.selected_card_id, 0)
+        return owned > in_deck
+
+    def _cancel_sell_pending(self) -> None:
+        self._sell_pending = None
+        self._build_buttons()
+
+    def _queue_sell_items(self, qty: int) -> None:
+        inv = self.app.state.inventory
+        available = int(inv.booster_packs if self.sell_item == "booster" else inv.decks)
+        q = max(0, min(int(qty), available))
+        if q <= 0:
+            return
+        from game.sim.sellback import market_buy_price, sellback_total, sellback_unit_price
+
+        market = market_buy_price(self.sell_item)
+        unit = sellback_unit_price(market)
+        total = sellback_total(market, q)
+        self._sell_pending = {"type": "items", "key": self.sell_item, "qty": q, "unit": unit, "total": total}
+        self._build_buttons()
+
+    def _queue_sell_items_all(self) -> None:
+        inv = self.app.state.inventory
+        available = int(inv.booster_packs if self.sell_item == "booster" else inv.decks)
+        self._queue_sell_items(available)
+
+    def _queue_sell_selected_card(self, qty: int) -> None:
+        if not self.selected_card_id or not self._can_sell_selected_card():
+            return
+        owned = self.app.state.collection.get(self.selected_card_id)
+        in_deck = self.app.state.deck.cards.get(self.selected_card_id, 0)
+        from game.sim.sellback import market_buy_price, sellable_copies, sellback_total, sellback_unit_price
+
+        sellable = sellable_copies(owned=owned, in_deck=in_deck)
+        q = max(0, min(int(qty), sellable))
+        if q <= 0:
+            return
+        rarity = CARD_INDEX[self.selected_card_id].rarity
+        market = market_buy_price(rarity)
+        unit = sellback_unit_price(market)
+        total = sellback_total(market, q)
+        self._sell_pending = {"type": "card", "card_id": self.selected_card_id, "qty": q, "unit": unit, "total": total}
+        self._build_buttons()
+
+    def _queue_sell_selected_card_all(self) -> None:
+        if not self.selected_card_id:
+            return
+        owned = self.app.state.collection.get(self.selected_card_id)
+        in_deck = self.app.state.deck.cards.get(self.selected_card_id, 0)
+        from game.sim.sellback import sellable_copies
+
+        self._queue_sell_selected_card(sellable_copies(owned=owned, in_deck=in_deck))
+
+    def _queue_sell_random_rarity(self, rarity: str, qty: int) -> None:
+        q = max(0, int(qty))
+        if q <= 0:
+            return
+        # Precompute how many sellable exist for this rarity.
+        pool: list[str] = []
+        for cid in self.app.state.collection.cards.keys():
+            if CARD_INDEX[cid].rarity != rarity:
+                continue
+            owned = self.app.state.collection.get(cid)
+            in_deck = self.app.state.deck.cards.get(cid, 0)
+            if owned > in_deck:
+                pool.append(cid)
+        if not pool:
+            return
+        from game.sim.sellback import market_buy_price, sellback_total, sellback_unit_price
+
+        market = market_buy_price(rarity)
+        unit = sellback_unit_price(market)
+        total = sellback_total(market, q)
+        self._sell_pending = {"type": "random", "rarity": rarity, "qty": q, "unit": unit, "total": total}
+        self._build_buttons()
+
+    def _confirm_sell_pending(self) -> None:
+        if not self._sell_pending:
+            return
+        t = str(self._sell_pending.get("type"))
+        qty = int(self._sell_pending.get("qty", 0))
+        unit = int(self._sell_pending.get("unit", 0))
+        total = int(self._sell_pending.get("total", 0))
+        if qty <= 0 or total <= 0:
+            self._sell_pending = None
+            self._build_buttons()
+            return
+        before_money = int(self.app.state.money)
+        earned = 0
+        lines: list[str] = []
+        if t == "items":
+            key = str(self._sell_pending.get("key"))
+            inv = self.app.state.inventory
+            available = int(inv.booster_packs if key == "booster" else inv.decks)
+            q = min(qty, available)
+            if q <= 0:
+                self._sell_pending = None
+                self._build_buttons()
+                return
+            if key == "booster":
+                inv.booster_packs -= q
+            else:
+                inv.decks -= q
+            earned = unit * q
+            lines.append(f"Sold {q} {key}(s) @ ${unit} = ${earned}")
+        elif t == "card":
+            cid = str(self._sell_pending.get("card_id"))
+            owned = self.app.state.collection.get(cid)
+            in_deck = self.app.state.deck.cards.get(cid, 0)
+            from game.sim.sellback import sellable_copies
+
+            sellable = sellable_copies(owned=owned, in_deck=in_deck)
+            q = min(qty, sellable)
+            if q <= 0:
+                self._sell_pending = None
+                self._build_buttons()
+                return
+            if not self.app.state.collection.remove(cid, q):
+                self._sell_pending = None
+                self._build_buttons()
+                return
+            earned = unit * q
+            card = CARD_INDEX[cid]
+            lines.append(f"Sold {q}x {card.name} ({cid}) @ ${unit} = ${earned}")
+        else:  # random by rarity
+            rarity = str(self._sell_pending.get("rarity"))
+            remaining = qty
+            sold = 0
+            # Sell one at a time to respect deck commitments per card.
+            while remaining > 0:
+                pool: list[str] = []
+                for cid in self.app.state.collection.cards.keys():
+                    if CARD_INDEX[cid].rarity != rarity:
+                        continue
+                    owned = self.app.state.collection.get(cid)
+                    in_deck = self.app.state.deck.cards.get(cid, 0)
+                    if owned > in_deck:
+                        pool.append(cid)
+                if not pool:
+                    break
+                cid = self.app.rng.choice(pool)
+                if not self.app.state.collection.remove(cid, 1):
+                    break
+                sold += 1
+                remaining -= 1
+            if sold <= 0:
+                self._sell_pending = None
+                self._build_buttons()
+                return
+            earned = unit * sold
+            lines.append(f"Sold {sold} random {rarity} cards @ ${unit} = ${earned}")
+
+        self.app.state.money += int(earned)
+        mods = self.app.state.skills.modifiers(get_default_skill_tree())
+        gained_xp = xp_from_sell(int(earned), mods)
+        if gained_xp > 0:
+            res = self.app.state.progression.add_xp(gained_xp)
+            if res.gained_levels > 0:
+                self.toasts.push(f"Level up! Lv {self.app.state.progression.level} (+{res.gained_skill_points} SP)")
+        self.app.state.analytics.record_sellback(day=int(self.app.state.day), t=float(self.app.state.time_seconds), revenue=int(earned))
+        self.app.state.analytics.log(
+            day=int(self.app.state.day),
+            t=float(self.app.state.time_seconds),
+            kind="sell",
+            message=f"Sold back for ${int(earned)}",
+        )
+        lines.append(f"Earned: ${earned} | Money: ${before_money} → ${self.app.state.money}")
+        lines.append(f"XP gained: {gained_xp}")
+        self._sell_receipt_lines = lines
+        self.toasts.push(f"Sold items for ${earned}.")
+        self._sell_pending = None
         self._build_buttons()
 
     def _price_attr_for_product(self, product: str) -> str | None:
@@ -1158,6 +1674,13 @@ class ShopScene(Scene):
             shelf.cards.clear()
         shelf.qty += to_add
         self._award_staff_xp("restock", to_add, product=product)
+        self.app.state.analytics.record_restock(day=int(self.app.state.day), t=float(self.app.state.time_seconds), product=product, qty=int(to_add))
+        self.app.state.analytics.log(
+            day=int(self.app.state.day),
+            t=float(self.app.state.time_seconds),
+            kind="restock",
+            message=f"Manual restock {product} x{int(to_add)}",
+        )
         self._refresh_shelves()
 
     def _can_list_selected_card_to_shelf(self) -> bool:
@@ -1212,6 +1735,8 @@ class ShopScene(Scene):
         self.app.state.money -= cost
         order = InventoryOrder(qty, 0, {}, cost, 0, self.app.state.time_seconds + 30.0)
         self.app.state.pending_orders.append(order)
+        self.app.state.analytics.record_order_placed(day=int(self.app.state.day), t=float(self.app.state.time_seconds), product="booster", qty=int(qty))
+        self.app.state.analytics.log(day=int(self.app.state.day), t=float(self.app.state.time_seconds), kind="order", message=f"Ordered boosters x{int(qty)} (${int(cost)})")
         self._refresh_shelves()
         self._build_buttons()
 
@@ -1223,6 +1748,8 @@ class ShopScene(Scene):
         self.app.state.money -= cost
         order = InventoryOrder(0, qty, {}, cost, 0, self.app.state.time_seconds + 30.0)
         self.app.state.pending_orders.append(order)
+        self.app.state.analytics.record_order_placed(day=int(self.app.state.day), t=float(self.app.state.time_seconds), product="deck", qty=int(qty))
+        self.app.state.analytics.log(day=int(self.app.state.day), t=float(self.app.state.time_seconds), kind="order", message=f"Ordered decks x{int(qty)} (${int(cost)})")
         self._refresh_shelves()
         self._build_buttons()
 
@@ -1236,6 +1763,8 @@ class ShopScene(Scene):
         self.app.state.money -= cost
         order = InventoryOrder(0, 0, {rarity: qty}, cost, 0, self.app.state.time_seconds + 30.0)
         self.app.state.pending_orders.append(order)
+        self.app.state.analytics.record_order_placed(day=int(self.app.state.day), t=float(self.app.state.time_seconds), product=f"single_{rarity}", qty=int(qty))
+        self.app.state.analytics.log(day=int(self.app.state.day), t=float(self.app.state.time_seconds), kind="order", message=f"Ordered {rarity} singles x{int(qty)} (${int(cost)})")
         self._refresh_shelves()
         self._build_buttons()
 
@@ -1397,6 +1926,13 @@ class ShopScene(Scene):
                 self._handle_deck_click(event.pos)
             if event.type == pygame.MOUSEWHEEL:
                 self._scroll_card_book(-event.y * 24)
+        if self.current_tab == "sell":
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                self._handle_sell_click(event.pos)
+            if event.type == pygame.MOUSEWHEEL:
+                in_book = self.book_panel.rect.collidepoint(pygame.mouse.get_pos())
+                if in_book:
+                    self._scroll_card_book(-event.y * 24)
         if self.current_tab == "skills":
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
                 if self._skills_content_rect().collidepoint(event.pos):
@@ -1461,15 +1997,55 @@ class ShopScene(Scene):
         if self.current_tab == "packs":
             if any(self._pack_counts_snapshot.get(p.pack_id) != self._pack_count(p.pack_id) for p in PACK_TYPES):
                 self._refresh_pack_list()
-            if self.revealed_cards and self.reveal_index < len(self.revealed_cards):
-                self.reveal_index += 1
+            # Drive the lightweight pack opening animation state machine.
+            self._pack_anim_cooldown = max(0.0, float(self._pack_anim_cooldown) - float(dt))
+            total = len(self.revealed_cards[:5])
+            if self._pack_anim_active():
+                keys = pygame.key.get_pressed()
+                if keys[pygame.K_SPACE]:
+                    self._skip_pack_anim()
+                else:
+                    # Stages: shake (0.3s) -> flash/slots (0.6s) -> reveal cards.
+                    SHAKE_S = 0.3
+                    FLASH_S = 0.6
+                    CARD_DELAY_S = 0.12
+                    self._pack_anim_stage_t += float(dt)
+                    if self._pack_anim_stage == "shake":
+                        if self._pack_anim_stage_t >= SHAKE_S:
+                            self._pack_anim_stage = "flash"
+                            self._pack_anim_stage_t = 0.0
+                            self._pack_slots_alpha = 0
+                    elif self._pack_anim_stage == "flash":
+                        p = min(1.0, max(0.0, self._pack_anim_stage_t / FLASH_S))
+                        self._pack_slots_alpha = int(255 * p)
+                        if self._pack_anim_stage_t >= FLASH_S:
+                            self._pack_anim_stage = "reveal"
+                            self._pack_anim_stage_t = 0.0
+                            self._pack_anim_reveal_t = 0.0
+                            self._pack_slots_alpha = 255
+                    elif self._pack_anim_stage == "reveal":
+                        self._pack_anim_reveal_t += float(dt)
+                        while self._pack_anim_reveal_t >= CARD_DELAY_S and self._pack_anim_revealed < total:
+                            self._pack_anim_reveal_t -= CARD_DELAY_S
+                            self._pack_anim_revealed += 1
+                            self.reveal_index = self._pack_anim_revealed
+                        if self._pack_anim_revealed >= total:
+                            self._pack_anim_stage = "done"
+                            self._pack_anim_stage_t = 0.0
+            else:
+                # Auto-start next queued pack (if any).
+                if self._pack_open_queue > 0 and self._pack_anim_cooldown <= 0.0:
+                    self._start_next_pack_open()
             # Keep pack button enabled states in sync without rebuilding UI.
             count = self._pack_count(self.selected_pack_id)
             for b in self.buttons:
                 if b.text in {"Open Pack", "Open x5"}:
                     b.enabled = count > 0
                 elif b.text == "Reveal All":
-                    b.enabled = bool(self.revealed_cards) and self.reveal_index < len(self.revealed_cards)
+                    b.enabled = bool(self.revealed_cards) and (self._pack_anim_active() or self.reveal_index < len(self.revealed_cards[:5]))
+        # Forecast cache update (throttled to 1 Hz max).
+        if self.current_tab in {"manage", "stats"}:
+            self._update_forecast_cache()
         # Flush aggregated staff XP toast (reduces spam for frequent events like sales).
         if self._staff_xp_toast_accum > 0:
             self._staff_xp_toast_timer += dt
@@ -1553,6 +2129,19 @@ class ShopScene(Scene):
         # Award staff XP for restocking only when items actually moved onto a shelf.
         if res.did_restock and res.items_moved > 0:
             self._award_staff_xp("restock", int(res.items_moved), product=res.product)
+            if res.product:
+                self.app.state.analytics.record_restock(
+                    day=int(self.app.state.day),
+                    t=float(self.app.state.time_seconds),
+                    product=str(res.product),
+                    qty=int(res.items_moved),
+                )
+                self.app.state.analytics.log(
+                    day=int(self.app.state.day),
+                    t=float(self.app.state.time_seconds),
+                    kind="restock",
+                    message=f"Staff restock {str(res.product)} x{int(res.items_moved)}",
+                )
         if self.app.state.shopkeeper_xp != self.staff.xp:
             self.app.state.shopkeeper_xp = int(self.staff.xp)
         if res.did_restock and self.current_tab == "manage":
@@ -1571,6 +2160,7 @@ class ShopScene(Scene):
         sprite_id = shop_assets.get_random_customer_id(self.app.rng)
         self.customers.append(Customer(entrance, target, "to_shelf", sprite_id))
         self.app.state.last_summary.customers += 1
+        self.app.state.analytics.record_visitor(day=int(self.app.state.day), t=float(self.app.state.time_seconds))
         return True
 
     def _find_object_tile(self, kind: str) -> tuple[int, int] | None:
@@ -1665,6 +2255,7 @@ class ShopScene(Scene):
                 stock.qty -= 1
         else:
             stock.qty -= 1
+        became_empty = stock.qty <= 0
         if stock.qty <= 0:
             stock.qty = 0
             # Keep the last product type so staff can restock it (customers only buy if qty>0 anyway).
@@ -1675,6 +2266,20 @@ class ShopScene(Scene):
         self.app.state.last_summary.revenue += price
         self.app.state.last_summary.units_sold += 1
         self._award_staff_xp("sale", int(price), product=product)
+        self.app.state.analytics.record_sale(
+            day=int(self.app.state.day),
+            t=float(self.app.state.time_seconds),
+            product=str(product),
+            revenue=int(price),
+            shelf_key=str(shelf_key),
+            became_empty=bool(became_empty),
+        )
+        self.app.state.analytics.log(
+            day=int(self.app.state.day),
+            t=float(self.app.state.time_seconds),
+            kind="sale",
+            message=f"Sold {product} for ${int(price)}",
+        )
         res = self.app.state.progression.add_xp(xp_from_sale(price, mods))
         if res.gained_levels > 0:
             self.toasts.push(f"Level up! Lv {self.app.state.progression.level} (+{res.gained_skill_points} SP)")
@@ -1780,8 +2385,12 @@ class ShopScene(Scene):
         if self.current_tab == "deck":
             self.book_panel.draw(surface, self.theme)
             self.deck_panel.draw(surface, self.theme)
+        if self.current_tab == "sell":
+            self.book_panel.draw(surface, self.theme)
         if self.current_tab == "skills":
             self.skills_panel.draw(surface, self.theme)
+        if self.current_tab == "stats":
+            self.stats_panel.draw(surface, self.theme)
         for button in self.buttons:
             button.draw(surface, self.theme)
         for tb in self.tab_buttons:
@@ -1796,8 +2405,12 @@ class ShopScene(Scene):
             self._draw_deck(surface)
         if self.current_tab == "skills":
             self._draw_skills(surface)
+        if self.current_tab == "stats":
+            self._draw_stats(surface)
         if self.current_tab == "battle":
             self._draw_battle_info(surface)
+        if self.current_tab == "sell":
+            self._draw_sell(surface)
         if self.menu_open:
             overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 140))
@@ -1806,6 +2419,144 @@ class ShopScene(Scene):
             for button in self.menu_buttons:
                 button.draw(surface, self.theme)
         self.draw_overlays(surface)
+
+    def _draw_sell(self, surface: pygame.Surface) -> None:
+        """Sell flow UI: items (boosters/decks) or cards (collection)."""
+        # Receipt summary (shown near bottom of order panel).
+        if self._sell_pending:
+            qty = int(self._sell_pending.get("qty", 0))
+            unit = int(self._sell_pending.get("unit", 0))
+            total = int(self._sell_pending.get("total", 0))
+            desc = self.theme.render_text(
+                self.theme.font_small,
+                f"Pending: qty {qty} @ ${unit} = ${total}",
+                self.theme.colors.muted,
+            )
+            surface.blit(desc, (self.order_panel.rect.x + 20, self.order_panel.rect.bottom - 88))
+        if self._sell_receipt_lines:
+            x = self.order_panel.rect.x + 20
+            y = self.order_panel.rect.bottom - 140
+            for line in self._sell_receipt_lines[:5]:
+                t = self.theme.render_text(self.theme.font_small, line, self.theme.colors.muted)
+                surface.blit(t, (x, y))
+                y += 18
+
+        # Card book list (for cards mode; still useful for reference in items mode).
+        row_height = 88
+        content_rect = self._card_book_content_rect()
+        rarity_filter = None if self.sell_mode != "cards" else RARITIES[self.sell_rarity_index]
+        entries = self.app.state.collection.entries(rarity_filter)
+        total_height = len(entries) * row_height
+        max_scroll = max(0, total_height - content_rect.height)
+        self.card_book_scroll = max(0, min(self.card_book_scroll, max_scroll))
+
+        surface.set_clip(content_rect)
+        start_idx = max(0, (self.card_book_scroll // row_height) - 1)
+        visible = (content_rect.height // row_height) + 3
+        end_idx = min(len(entries), start_idx + visible)
+        y = content_rect.y - self.card_book_scroll + start_idx * row_height
+        for entry in entries[start_idx:end_idx]:
+            card = CARD_INDEX[entry.card_id]
+            owned = int(entry.qty)
+            in_deck = int(self.app.state.deck.cards.get(entry.card_id, 0))
+            sellable = max(0, owned - in_deck)
+            row_rect = pygame.Rect(content_rect.x, y, content_rect.width, row_height - 8)
+            if row_rect.collidepoint(pygame.mouse.get_pos()):
+                pygame.draw.rect(surface, self.theme.colors.panel_alt, row_rect)
+            if self.selected_card_id == entry.card_id:
+                pygame.draw.rect(surface, self.theme.colors.accent, row_rect, 2)
+            name = self.theme.render_text(self.theme.font_small, f"{card.name} ({card.card_id})", self.theme.colors.text)
+            surface.blit(name, (row_rect.x + 8, row_rect.y + 6))
+            from game.sim.sellback import market_buy_price, sellback_unit_price
+
+            unit = sellback_unit_price(market_buy_price(card.rarity))
+            meta = self.theme.render_text(
+                self.theme.font_small,
+                f"{card.rarity.title()} | Owned {owned} | In deck {in_deck} | Sellable {sellable} | Unit ${unit}",
+                self.theme.colors.muted,
+            )
+            surface.blit(meta, (row_rect.x + 8, row_rect.y + 28))
+            y += row_height
+        surface.set_clip(None)
+
+    def _draw_stats(self, surface: pygame.Surface) -> None:
+        """Analytics: graphs + rolling event log."""
+        rect = self.stats_panel.rect
+        inner = pygame.Rect(rect.x + 12, rect.y + 36, rect.width - 24, rect.height - 48)
+        pygame.draw.rect(surface, self.theme.colors.panel_alt, inner)
+        pygame.draw.rect(surface, self.theme.colors.border, inner, 1)
+
+        a = self.app.state.analytics
+        day = int(self.app.state.day)
+        # Last N days series.
+        n = 14
+        days = list(range(max(1, day - n + 1), day + 1))
+        rev: list[int] = []
+        vis: list[int] = []
+        for d in days:
+            m = a.days.get(d)
+            rev.append(int(m.revenue) if m else 0)
+            vis.append(int(m.visitors) if m else 0)
+        units = []
+        for d in days:
+            m = a.days.get(d)
+            if not m:
+                units.append(0)
+            else:
+                units.append(sum(int(v) for v in m.units_sold.values()))
+
+        def draw_series(box: pygame.Rect, values: list[int], *, color: tuple[int, int, int], label: str) -> None:
+            if not values:
+                return
+            mx = max(values) if max(values) > 0 else 1
+            pts: list[tuple[int, int]] = []
+            for i, v in enumerate(values):
+                x = box.x + int((i / max(1, (len(values) - 1))) * (box.width - 1))
+                y = box.bottom - int((v / mx) * (box.height - 1))
+                pts.append((x, y))
+            if len(pts) >= 2:
+                pygame.draw.lines(surface, color, False, pts, 2)
+            pygame.draw.rect(surface, self.theme.colors.border, box, 1)
+            t = self.theme.render_text(self.theme.font_small, f"{label} (max {mx})", self.theme.colors.muted)
+            surface.blit(t, (box.x + 6, box.y + 4))
+
+        left = pygame.Rect(inner.x + 8, inner.y + 8, int(inner.width * 0.62) - 12, inner.height - 16)
+        right = pygame.Rect(left.right + 12, inner.y + 8, inner.right - left.right - 20, inner.height - 16)
+
+        g1 = pygame.Rect(left.x, left.y, left.width, left.height // 3 - 6)
+        g2 = pygame.Rect(left.x, g1.bottom + 10, left.width, left.height // 3 - 6)
+        g3 = pygame.Rect(left.x, g2.bottom + 10, left.width, left.bottom - (g2.bottom + 10))
+        draw_series(g1, rev, color=self.theme.colors.accent, label="Revenue/day")
+        draw_series(g2, vis, color=self.theme.colors.good, label="Visitors/day")
+        draw_series(g3, units, color=self.theme.colors.text, label="Units sold/day")
+
+        # Derived stats
+        cur = a.days.get(day, None)
+        cur_vis = int(cur.visitors) if cur else 0
+        cur_units = sum(int(v) for v in (cur.units_sold.values() if cur else []))
+        per_cust = (cur_units / cur_vis) if cur_vis > 0 else 0.0
+        lines = [
+            f"Day {day}",
+            f"Visitors: {cur_vis}",
+            f"Units sold: {cur_units}",
+            f"Units/customer: {per_cust:0.2f}",
+            f"Pending orders: {len(self.app.state.pending_orders)}",
+        ]
+        y = right.y
+        for line in lines:
+            t = self.theme.render_text(self.theme.font_small, line, self.theme.colors.text)
+            surface.blit(t, (right.x, y))
+            y += 18
+
+        y += 10
+        hdr = self.theme.render_text(self.theme.font_small, "Recent events", self.theme.colors.text)
+        surface.blit(hdr, (right.x, y))
+        y += 18
+        for e in a.event_log[-14:]:
+            msg = f"D{e.day} {e.kind}: {e.message}"
+            t = self.theme.render_text(self.theme.font_small, msg[:48], self.theme.colors.muted)
+            surface.blit(t, (right.x, y))
+            y += 18
 
     def _draw_skills(self, surface: pygame.Surface) -> None:
         tree = get_default_skill_tree()
@@ -2072,26 +2823,55 @@ class ShopScene(Scene):
             y += ih
         surface.set_clip(clip)
 
-        # Revealed cards preview (last opened pack).
-        asset_mgr = get_asset_manager()
+        # Pack opening animation + revealed cards preview (last opened pack).
         base_x = self.shop_panel.rect.x + 20
         base_y = max(self.shop_panel.rect.y + 40, self.shop_panel.rect.bottom - 190)
-        for idx, card_id in enumerate(self.revealed_cards[:5]):
-            rect = pygame.Rect(base_x + idx * 130, base_y, 120, 160)
-            if idx < self.reveal_index:
-                card = CARD_INDEX[card_id]
-                bg = asset_mgr.create_card_background(card.rarity, (rect.width, rect.height))
-                surface.blit(bg, rect.topleft)
-                sprite = asset_mgr.get_card_sprite(card_id, (64, 64))
-                if sprite:
-                    surface.blit(sprite, (rect.x + 28, rect.y + 15))
-                rarity_color = getattr(self.theme.colors, f"card_{card.rarity}")
-                draw_glow_border(surface, rect, rarity_color, border_width=2, glow_radius=4, glow_alpha=80)
-                name = self.theme.render_text(self.theme.font_small, card.name[:12], self.theme.colors.text)
-                surface.blit(name, (rect.x + 6, rect.y + 4))
+        rects = [pygame.Rect(base_x + i * 130, base_y, 120, 160) for i in range(5)]
+        stage = self._pack_anim_stage
+        # Stage 1 is the pack shake (no slots yet). After that, slots appear and cards reveal.
+        show_slots = stage in {"flash", "reveal", "done"} or (stage == "idle" and bool(self.revealed_cards))
+        backs_alpha = int(self._pack_slots_alpha) if stage == "flash" else 255
+        back = self._pack_card_back
+        if back is not None:
+            back.set_alpha(backs_alpha)
+        faces = self._pack_card_faces or []
+        revealed = max(0, min(int(self.reveal_index), len(self.revealed_cards[:5])))
+
+        for i, rect in enumerate(rects):
+            if not show_slots:
+                pygame.draw.rect(surface, self.theme.colors.panel_alt, rect)
+                pygame.draw.rect(surface, self.theme.colors.border, rect, 2)
+                continue
+            if i < revealed and i < len(faces):
+                surface.blit(faces[i], rect.topleft)
+            elif back is not None:
+                surface.blit(back, rect.topleft)
             else:
                 pygame.draw.rect(surface, self.theme.colors.panel_alt, rect)
                 pygame.draw.rect(surface, self.theme.colors.border, rect, 2)
+
+        # Pack shake/flash animation drawn above the slots.
+        if stage in {"shake", "flash"} and self._pack_surf is not None:
+            pack = self._pack_surf
+            px = rects[2].centerx - pack.get_width() // 2
+            py = rects[0].y - pack.get_height() - 18
+            # Clamp inside shop panel for smaller windows.
+            px = max(self.shop_panel.rect.x + 12, min(px, self.shop_panel.rect.right - 12 - pack.get_width()))
+            py = max(self.shop_panel.rect.y + 40, min(py, rects[0].y - pack.get_height() - 6))
+            if stage == "shake":
+                dx = int(math.sin(float(self._pack_anim_stage_t) * 35.0) * 6.0)
+                dy = int(math.sin(float(self._pack_anim_stage_t) * 55.0) * 3.0)
+                surface.blit(pack, (px + dx, py + dy))
+            else:
+                surface.blit(pack, (px, py))
+                if self._pack_flash_surf is not None:
+                    flash = self._pack_flash_surf
+                    # Fade flash out over the flash stage duration (0.6s).
+                    alpha = int(255 * max(0.0, min(1.0, 1.0 - (float(self._pack_anim_stage_t) / 0.6))))
+                    flash.set_alpha(alpha)
+                    fx = px + pack.get_width() // 2 - flash.get_width() // 2
+                    fy = py + pack.get_height() // 2 - flash.get_height() // 2
+                    surface.blit(flash, (fx, fy))
 
     def _select_shelf_at_pos(self, pos: tuple[int, int]) -> str | None:
         if not self._shop_inner_rect().collidepoint(pos):
@@ -2128,8 +2908,14 @@ class ShopScene(Scene):
                 return True
             if self._start_drag_or_resize(self.book_panel.rect, "book", pos):
                 return True
+        if self.current_tab == "sell":
+            if self._start_drag_or_resize(self.book_panel.rect, "book", pos):
+                return True
         if self.current_tab == "skills":
             if self._start_drag_or_resize(self.skills_panel.rect, "skills", pos):
+                return True
+        if self.current_tab == "stats":
+            if self._start_drag_or_resize(self.stats_panel.rect, "stats", pos):
                 return True
         if self._start_drag_or_resize(self.order_panel.rect, "order", pos):
             return True
@@ -2168,6 +2954,8 @@ class ShopScene(Scene):
                 rect = self.deck_panel.rect
             elif self._drag_target == "skills":
                 rect = self.skills_panel.rect
+            elif self._drag_target == "stats":
+                rect = self.stats_panel.rect
             elif self._drag_target == "shop":
                 rect = self.shop_panel.rect
             else:
@@ -2190,6 +2978,7 @@ class ShopScene(Scene):
                 self._relayout_buttons_only()
             elif self._drag_target == "inventory":
                 self.inventory_panel.rect = rect
+                self._relayout_buttons_only()
             elif self._drag_target == "book":
                 self.book_panel.rect = rect
                 self._relayout_buttons_only()
@@ -2197,6 +2986,8 @@ class ShopScene(Scene):
                 self.deck_panel.rect = rect
             elif self._drag_target == "skills":
                 self.skills_panel.rect = rect
+            elif self._drag_target == "stats":
+                self.stats_panel.rect = rect
             elif self._drag_target == "shop":
                 self.shop_panel.rect = rect
                 self._update_shop_viewport(rescale=False)
@@ -2215,6 +3006,8 @@ class ShopScene(Scene):
                 rect = self.deck_panel.rect
             elif self._resize_target == "skills":
                 rect = self.skills_panel.rect
+            elif self._resize_target == "stats":
+                rect = self.stats_panel.rect
             elif self._resize_target == "shop":
                 rect = self.shop_panel.rect
             else:
@@ -2231,6 +3024,7 @@ class ShopScene(Scene):
                 self._relayout_buttons_only()
             elif self._resize_target == "inventory":
                 self.inventory_panel.rect = rect
+                self._relayout_buttons_only()
             elif self._resize_target == "book":
                 self.book_panel.rect = rect
                 self._relayout_buttons_only()
@@ -2238,6 +3032,8 @@ class ShopScene(Scene):
                 self.deck_panel.rect = rect
             elif self._resize_target == "skills":
                 self.skills_panel.rect = rect
+            elif self._resize_target == "stats":
+                self.stats_panel.rect = rect
             elif self._resize_target == "shop":
                 self.shop_panel.rect = rect
                 self._update_shop_viewport(rescale=False)
@@ -2378,6 +3174,37 @@ class ShopScene(Scene):
                 surface.blit(line, (self.inventory_panel.rect.x + 20, y))
                 y += 18
 
+        # Restock Suggestions (throttled to 1 Hz).
+        y += 6
+        hdr = self.theme.render_text(self.theme.font_small, "Restock Suggestions", self.theme.colors.text)
+        surface.blit(hdr, (self.inventory_panel.rect.x + 20, y))
+        y += 18
+        if not self._forecast_suggestions:
+            none = self.theme.render_text(self.theme.font_small, "(no data yet)", self.theme.colors.muted)
+            surface.blit(none, (self.inventory_panel.rect.x + 20, y))
+            y += 18
+        else:
+            for sug in self._forecast_suggestions[:4]:
+                line = self.theme.render_text(
+                    self.theme.font_small,
+                    f"{sug.product}: recommend {sug.recommended_qty} (stock {sug.current_total_stock}) | {sug.reason}",
+                    self.theme.colors.muted,
+                )
+                surface.blit(line, (self.inventory_panel.rect.x + 20, y))
+                y += 18
+
+        if self._forecast_stockouts:
+            y += 4
+            hdr2 = self.theme.render_text(self.theme.font_small, "Stockout hot spots (last 3 days)", self.theme.colors.text)
+            surface.blit(hdr2, (self.inventory_panel.rect.x + 20, y))
+            y += 18
+            for key, cnt in self._forecast_stockouts[:3]:
+                surface.blit(
+                    self.theme.render_text(self.theme.font_small, f"Shelf {key}: {cnt} stockouts", self.theme.colors.muted),
+                    (self.inventory_panel.rect.x + 20, y),
+                )
+                y += 18
+
     def _draw_deck(self, surface: pygame.Surface) -> None:
         asset_mgr = get_asset_manager()
         # Card book
@@ -2457,6 +3284,20 @@ class ShopScene(Scene):
                 self.selected_card_id = entries[idx].card_id
                 self._build_buttons()
                 return
+
+    def _handle_sell_click(self, pos: tuple[int, int]) -> None:
+        """Select a card row in the Sell tab (respects rarity filter)."""
+        content_rect = self._card_book_content_rect()
+        if not content_rect.collidepoint(pos):
+            return
+        row_height = 88
+        idx = int((pos[1] - content_rect.y + self.card_book_scroll) // row_height)
+        rarity_filter = None if self.sell_mode != "cards" else RARITIES[self.sell_rarity_index]
+        entries = self.app.state.collection.entries(rarity_filter)
+        if 0 <= idx < len(entries):
+            self.selected_card_id = entries[idx].card_id
+            self._build_buttons()
+            return
 
     def _scroll_card_book(self, delta: int) -> None:
         content_height = self._card_book_content_rect().height

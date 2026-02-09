@@ -11,6 +11,7 @@ from game.sim.economy import choose_purchase
 from game.config import Prices
 from game.sim.inventory import Inventory, InventoryOrder
 from game.sim.shop import ShopLayout
+from game.sim.shop import ShelfStock
 from game.sim.progression import MAX_LEVEL, PlayerProgression, xp_to_next
 from game.sim.skill_tree import SkillTreeState, default_skill_tree
 from game.sim.economy_rules import apply_sell_price_pct, xp_from_sale, xp_from_battle_win
@@ -19,6 +20,8 @@ from game.sim.economy_rules import effective_sale_price
 from game.sim.skill_tree import get_default_skill_tree
 from game.sim.economy import customer_spawn_interval
 from game.sim.pricing import PricingSettings
+from game.sim.analytics import AnalyticsState
+from game.sim.forecast import compute_restock_suggestions, top_stockout_shelves
 from game.config import (
     CUSTOMER_SPAWN_INTERVAL_MIN,
     CUSTOMER_SPAWN_INTERVAL_START,
@@ -156,6 +159,38 @@ def test_text_cache_lru_and_counters() -> None:
     assert s3 is not s1
 
 
+def test_panel_chrome_cache_rebuild_rules() -> None:
+    import os
+
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import pygame
+
+    pygame.init()
+    pygame.display.set_mode((1, 1))
+
+    from game.ui.theme import Theme
+    from game.ui.widgets import Panel
+
+    theme = Theme()
+    screen = pygame.Surface((200, 200))
+    p = Panel(pygame.Rect(10, 10, 120, 60), "Test Panel")
+    p.draw(screen, theme)
+    assert p._chrome_builds == 1
+    # Moving (dragging) should not rebuild chrome.
+    p.rect.x += 40
+    p.rect.y += 20
+    p.draw(screen, theme)
+    assert p._chrome_builds == 1
+    # Resizing should rebuild.
+    p.rect.width += 10
+    p.draw(screen, theme)
+    assert p._chrome_builds == 2
+    # Explicit dirty should rebuild.
+    p.mark_dirty()
+    p.draw(screen, theme)
+    assert p._chrome_builds == 3
+
+
 def test_day_night_pause_smoke() -> None:
     # Basic smoke test: pausing should freeze shop phase_timer progression.
     import os
@@ -186,6 +221,58 @@ def test_day_night_pause_smoke() -> None:
     # Updating scene should not advance cycle when paused
     shop.update(1.0)
     assert shop.phase_timer == t1
+
+
+def test_packs_open_anim_queue_smoke() -> None:
+    # Smoke: pack opening uses queued animation, disables Open while animating,
+    # and does not consume more than one pack per animation start.
+    import os
+
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import pygame
+
+    pygame.init()
+    pygame.display.set_mode((1, 1))
+    screen = pygame.display.get_surface()
+    assert screen is not None
+
+    from game.core.app import GameApp
+
+    app = GameApp(screen)
+    shop = app.scenes["shop"]
+    shop._switch_tab("packs")
+    shop.app.state.inventory.booster_packs = 2
+    shop.selected_pack_id = "booster"
+    shop._build_buttons()
+
+    def btn_enabled(text: str) -> bool:
+        for b in shop.buttons:
+            if b.text == text:
+                return bool(b.enabled)
+        raise AssertionError(f"missing button {text}")
+
+    assert btn_enabled("Open Pack") is True
+    assert btn_enabled("Open x5") is True
+
+    shop._queue_open_selected_packs(1)
+    assert shop.app.state.inventory.booster_packs == 1
+    assert shop._pack_anim_stage == "shake"
+    # Still have packs remaining => open remains enabled (queues while animating).
+    shop.update(0.01)
+    assert btn_enabled("Open Pack") is True
+
+    # Advance stages to completion without skipping.
+    shop.update(0.4)  # shake -> flash
+    assert shop._pack_anim_stage in {"flash", "reveal", "done"}
+    shop.update(0.7)  # flash -> reveal
+    shop.update(1.0)  # reveal -> done
+    assert shop._pack_anim_stage == "done"
+    assert shop.revealed_cards
+    assert shop.reveal_index == len(shop.revealed_cards[:5])
+
+    # Not busy anymore => open re-enabled (since 1 pack remains).
+    shop.update(0.01)
+    assert btn_enabled("Open Pack") is True
 
 
 def test_staff_choose_restock_plan() -> None:
@@ -341,6 +428,16 @@ def test_markup_changes_retail_not_wholesale_or_market() -> None:
     assert market_buy_price_single("rare") == market_buy_price_single("rare")
 
 
+def test_sellback_math_and_sellable_copies_pure() -> None:
+    from game.sim.sellback import sellable_copies, sellback_total, sellback_unit_price
+
+    assert sellable_copies(owned=5, in_deck=2) == 3
+    assert sellable_copies(owned=1, in_deck=2) == 0
+    assert sellback_unit_price(10, factor=0.6) == 6
+    assert sellback_total(10, 5, factor=0.6) == 30
+    assert sellback_total(10, 0, factor=0.6) == 0
+
+
 def test_progression_curve_monotonic_and_levelups() -> None:
     # xp_to_next should be monotonic increasing for 1..MAX_LEVEL-1
     prev = 0
@@ -449,6 +546,34 @@ def test_save_backcompat_defaults_progression_skills_fixtures() -> None:
     assert s.fixtures.shelves == 0
     assert s.shopkeeper_xp == 0
     assert s.pricing.mode == "absolute"
+    assert isinstance(s.analytics, AnalyticsState)
+
+
+def test_analytics_persist_and_forecast_pure() -> None:
+    a = AnalyticsState()
+    a.record_visitor(day=1, t=0.0)
+    a.record_sale(day=1, t=1.0, product="booster", revenue=4, shelf_key="2,2", became_empty=True)
+    a.record_restock(day=1, t=2.0, product="booster", qty=5)
+    a.record_order_placed(day=1, t=3.0, product="booster", qty=12)
+    a.record_order_delivered(day=1, t=33.0, product="booster", qty=12)
+    a.record_pack_open(day=1, t=10.0, packs=1)
+    a.record_sellback(day=1, t=12.0, revenue=5)
+    a.log(day=1, t=1.0, kind="sale", message="Sold booster")
+    d = a.to_dict()
+    a2 = AnalyticsState.from_dict(d)
+    assert a2.days[1].visitors == 1
+    assert a2.days[1].revenue == 4
+    assert a2.days[1].units_sold.get("booster", 0) == 1
+    assert a2.days[1].stockouts_by_shelf.get("2,2", 0) == 1
+    assert a2.event_log
+
+    # Forecast should recommend reordering when recent sales exist and stock is low.
+    inv = Inventory(booster_packs=0, decks=0)
+    shelves = {"2,2": ShelfStock("booster", qty=0, max_qty=10)}
+    sugs = compute_restock_suggestions(a2, day=1, inv=inv, shelves=shelves, lead_time_seconds=30.0, window_days=3)
+    assert any(s.product == "booster" and s.recommended_qty > 0 for s in sugs)
+    hot = top_stockout_shelves(a2, day=1, window_days=3, limit=3)
+    assert hot and hot[0][0] == "2,2"
 
 
 def test_sale_applies_sell_modifier_consistently() -> None:
@@ -574,6 +699,7 @@ def run() -> None:
     test_order_delivery_apply()
     test_debug_overlay_toggle_smoke()
     test_text_cache_lru_and_counters()
+    test_panel_chrome_cache_rebuild_rules()
     test_day_night_pause_smoke()
     test_staff_choose_restock_plan()
     test_staff_pickup_and_restock_smoke()
@@ -588,6 +714,8 @@ def run() -> None:
     test_customer_spawn_interval_ramp()
     test_skill_points_reconcile_on_load()
     test_tooltip_lru_cache_eviction()
+    test_sellback_math_and_sellable_copies_pure()
+    test_analytics_persist_and_forecast_pure()
     print("Sanity checks passed.")
 
 
