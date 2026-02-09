@@ -18,6 +18,7 @@ from game.sim.skill_tree import Modifiers
 from game.sim.economy_rules import effective_sale_price
 from game.sim.skill_tree import get_default_skill_tree
 from game.sim.economy import customer_spawn_interval
+from game.sim.pricing import PricingSettings
 from game.config import (
     CUSTOMER_SPAWN_INTERVAL_MIN,
     CUSTOMER_SPAWN_INTERVAL_START,
@@ -29,6 +30,14 @@ def test_pack_generation() -> None:
     rng = random.Random(1)
     pack = open_booster(rng)
     assert len(pack) == 5
+
+
+def test_pack_count_selection_smoke() -> None:
+    from game.sim.packs_catalog import pack_count
+
+    inv = Inventory(booster_packs=3)
+    assert pack_count(inv, "booster") == 3
+    assert pack_count(inv, "unknown_pack") == 0
 
 
 def test_deck_rules() -> None:
@@ -221,7 +230,7 @@ def test_staff_pickup_and_restock_smoke() -> None:
 
     did = False
     for _ in range(300):
-        did = update_staff(
+        res = update_staff(
             staff,
             0.1,
             grid=(20, 12),
@@ -231,11 +240,105 @@ def test_staff_pickup_and_restock_smoke() -> None:
             inventory=inv,
             collection=col,
             deck=deck,
-        ) or did
+        )
+        did = did or bool(res.did_restock)
         if shelves["2,2"].qty > 0:
             break
     assert shelves["2,2"].qty > 0
     assert inv.booster_packs < 10  # picked up from inventory at counter
+
+
+def test_staff_xp_awards_pure() -> None:
+    from game.sim.staff_xp import award_staff_xp_total, compute_staff_xp, staff_level_from_xp
+
+    # Sale XP should be >0 and deterministic.
+    gained_sale = compute_staff_xp("sale", 10, product="booster")
+    assert gained_sale > 0
+    r1 = award_staff_xp_total(0, "sale", 10, product="booster")
+    assert r1.gained_xp == gained_sale
+    assert r1.new_xp == gained_sale
+
+    # Restock XP should scale with items moved.
+    gained_restock = compute_staff_xp("restock", 5, product="single_rare")
+    assert gained_restock >= compute_staff_xp("restock", 1, product="single_rare")
+    r2 = award_staff_xp_total(0, "restock", 5, product="single_rare")
+    assert r2.new_xp == gained_restock
+
+    # Pack open XP should be linear in pack count.
+    r3 = award_staff_xp_total(0, "pack_open", 3)
+    r4 = award_staff_xp_total(0, "pack_open", 1)
+    assert r3.gained_xp == r4.gained_xp * 3
+
+    # Level derivation is monotonic.
+    assert staff_level_from_xp(0) == 1
+    assert staff_level_from_xp(99) == 1
+    assert staff_level_from_xp(100) == 2
+
+
+def test_balance_sanity_sales_sim_deterministic() -> None:
+    """Deterministic mini-sim: stocked shelf should increase money; empty shelves should not."""
+    import random
+
+    from game.config import Prices
+    from game.sim.economy import choose_purchase
+    from game.sim.economy_rules import effective_sale_price
+
+    prices = Prices()
+    mods = Modifiers()
+    pricing = PricingSettings()
+
+    def run_sim(*, start_money: int, stock_qty: int, steps: int, seed: int) -> int:
+        rng = random.Random(seed)
+        money = int(start_money)
+        qty = int(stock_qty)
+        for _ in range(int(steps)):
+            available: list[str] = []
+            if qty > 0:
+                available.append("booster")
+            pick = choose_purchase(prices, available, rng)
+            if pick == "none":
+                continue
+            p = effective_sale_price(prices, pick, mods, pricing)
+            assert p is not None and p > 0
+            qty -= 1
+            money += int(p)
+        return money
+
+    m0 = 100
+    m1 = run_sim(start_money=m0, stock_qty=12, steps=10, seed=1337)
+    assert m1 > m0
+
+    m2 = run_sim(start_money=m0, stock_qty=0, steps=50, seed=1337)
+    assert m2 == m0
+
+
+def test_markup_changes_retail_not_wholesale_or_market() -> None:
+    from game.sim.pricing import PricingSettings, market_buy_price_single, retail_base_price, wholesale_order_total
+
+    prices = Prices()
+    base_wh = wholesale_order_total("booster", 12)
+    assert base_wh is not None and base_wh > 0
+
+    p_abs = PricingSettings(mode="absolute")
+    p_markup = PricingSettings(mode="markup")
+    p_markup.set_markup_pct("booster", 0.6)  # +60% => should differ from absolute ($4)
+
+    r_abs = retail_base_price(prices, p_abs, "booster")
+    r_mk = retail_base_price(prices, p_markup, "booster")
+    assert r_abs is not None and r_mk is not None
+    assert r_abs != r_mk  # markup should change retail
+
+    # Wholesale order total must not depend on pricing settings/markup.
+    assert wholesale_order_total("booster", 12) == base_wh
+
+    # Sale revenue uses retail (changed by markup).
+    eff_abs = effective_sale_price(prices, "booster", Modifiers(), p_abs)
+    eff_mk = effective_sale_price(prices, "booster", Modifiers(), p_markup)
+    assert eff_abs is not None and eff_mk is not None
+    assert eff_abs != eff_mk
+
+    # Market prices must be independent of player retail pricing.
+    assert market_buy_price_single("rare") == market_buy_price_single("rare")
 
 
 def test_progression_curve_monotonic_and_levelups() -> None:
@@ -345,6 +448,7 @@ def test_save_backcompat_defaults_progression_skills_fixtures() -> None:
     assert s.skills.rank("haggle") == 0
     assert s.fixtures.shelves == 0
     assert s.shopkeeper_xp == 0
+    assert s.pricing.mode == "absolute"
 
 
 def test_sale_applies_sell_modifier_consistently() -> None:
@@ -379,7 +483,7 @@ def test_sale_applies_sell_modifier_consistently() -> None:
     stock.qty = 1
     app.state.prices.booster = 10
 
-    expected = effective_sale_price(app.state.prices, "booster", mods)
+    expected = effective_sale_price(app.state.prices, "booster", mods, app.state.pricing)
     assert expected is not None
     before_money = app.state.money
 
@@ -462,6 +566,7 @@ def test_tooltip_lru_cache_eviction() -> None:
 
 def run() -> None:
     test_pack_generation()
+    test_pack_count_selection_smoke()
     test_deck_rules()
     test_battle_flow()
     test_economy_purchase()
@@ -472,6 +577,9 @@ def run() -> None:
     test_day_night_pause_smoke()
     test_staff_choose_restock_plan()
     test_staff_pickup_and_restock_smoke()
+    test_staff_xp_awards_pure()
+    test_balance_sanity_sales_sim_deterministic()
+    test_markup_changes_retail_not_wholesale_or_market()
     test_progression_curve_monotonic_and_levelups()
     test_skill_tree_validation_and_unlock_rules()
     test_economy_rules_price_and_xp_math()

@@ -41,4 +41,6 @@ This checklist is intended to verify **low input latency** and **stable frame ti
 - Open Manage, scroll shelf list, open Card Book, select a card, list to shelf.
 - Ensure scroll wheel only affects the hovered scroll area.
 - Ensure modal menu still captures input correctly when open.
+- In Packs tab, scroll the pack list rapidly; ensure no frame spikes and no scroll “leaks” to other panels.
+- Rapidly hover across buttons/lists with tooltips enabled; tooltip display should feel instant (no spikes).
 

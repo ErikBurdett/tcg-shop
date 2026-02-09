@@ -80,7 +80,7 @@ Change:
   - `Panel.draw`
   - `Label.draw`
   - `ScrollList.draw`
-  - `Tooltip.draw`
+  - (tooltips are now centralized in `TooltipManager`, which caches rendered tooltip surfaces)
 
 Effect:
 - Dramatically reduces per-frame `font.render(...)` work for repeated UI labels (buttons, panel titles, list items).
@@ -150,4 +150,19 @@ Recommended follow-ups (incremental):
 
 ## Related: staff actor rendering
 The shop view now also includes a visible staff actor with an XP bar + level indicator. The render path is kept viewport-safe and uses cached text. See `staff_xp_overview.md` for details.
+
+---
+
+## Related: tooltip rendering performance (instant hover, no spikes)
+
+Tooltips were refactored into a centralized manager to prevent per-frame layout/render work while moving the cursor.
+
+Key points:
+- **Show delay** (~200ms) prevents flicker when moving across UI.
+- **Cached tooltip surfaces** (LRU) keyed by style + text.
+- Tooltip drawing is clamped to bounds and **does not intercept clicks**.
+
+Files:
+- `game/ui/tooltip_manager.py`
+- `game/core/scene.py` (integration for global tooltips)
 

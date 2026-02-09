@@ -42,13 +42,15 @@ python main.py
   - **Global Start/Stop Day**: pinned bottom-middle across screens via the base `Scene`.
   - **Draggable/resizable panels**: ordering/stocking/inventory/book/deck panels can be moved/resized.
   - **Shop in a window**: the shop playfield is inside a **movable + resizable Shop panel** (with a clipped viewport).
+  - **Packs tab usability**: scrollable pack list, visible counts, and “Open” buttons disable when no packs are available.
 - **Order management**
   - Orders are **delivered ~30 seconds after purchase** (real-time), not “next day”.
   - Manage inventory shows an **Incoming (ETA)** queue.
 - **Pricing + market**
   - More **MTG-like retail defaults** for boosters/decks/singles by rarity.
-  - **Wholesale ordering** derived from retail (simple margin model).
-  - You can **buy random singles** by rarity (adds a random card of that rarity).
+  - **Retail pricing modes**: **Absolute** dollars or **Markup %** (retail-only).
+  - **Wholesale ordering** uses fixed **supplier unit costs** (`WHOLESALE_UNIT_COSTS`) and is **not affected** by retail/markup.
+  - You can **buy random singles** by rarity at fixed **market** prices (`MARKET_BUY_PRICES`) that the player cannot change.
 - **Shelf listing**
   - Shelves can hold **specific listed card IDs** (not only “single_rare xN”).
   - In Manage, “List Selected Card” opens a **collection card book menu** where you pick a card and list it to the selected shelf.
@@ -58,13 +60,29 @@ python main.py
 - **Simulation**
   - **Day/Night cycle**: ~300s day + ~60s night, with **pause/resume**.
   - **Autosave**: game auto-saves at the **start of every night**.
-  - **Roaming staff**: visible staff actor auto-restocks low shelves (based on shelf contents) and gains XP/levels.
+  - **Roaming staff**: visible staff actor auto-restocks low shelves and gains XP/levels from **sales**, **restocking**, and **opening packs**.
 - **Progression + UI feedback**
   - **Player progression**: earn XP from **shop sales** and **battle wins**, level up, and gain **skill points**.
   - **Skills tab**: unlock skill nodes with prerequisites; modifiers are cached and applied to economy.
   - **Global tooltips + toasts**: hover UI for quick tips; key actions show non-blocking notifications.
 - **Fixture economy**
   - Shelves/counters/posters must be **purchased** before they can be placed (existing placed fixtures remain owned on load).
+
+## Default Economy (tunable)
+- **Starting money**: `START_MONEY = 1400`
+- **Starting packs**: `START_PACKS = 3`
+- **Default retail prices** (see `game/config.py:Prices`):
+  - Booster: `$4`
+  - Deck: `$18`
+  - Singles: Common `$1`, Uncommon `$2`, Rare `$6`, Epic `$12`, Legendary `$28`
+  - Wholesale ordering uses **supplier unit costs** (`WHOLESALE_UNIT_COSTS`) and is **not** affected by retail pricing.
+
+### Pricing modes (Retail only)
+- **Absolute**: you set retail prices directly (what customers pay).
+- **Markup %**: retail is computed as \(retail = round(wholesale \times (1 + markup\_pct))\).
+- **Important**:
+  - Markup/retail changes **do not** change supplier/wholesale costs.
+  - The **market** (buying random singles) uses fixed `MARKET_BUY_PRICES` and is not affected by retail/markup.
 
 ## Asset Specs
 ### Global Pixel Sizes
@@ -100,6 +118,7 @@ python main.py
 - [x] Inventory ordering and shelf stocking
 - [x] Delayed delivery queue (real-time, ~30s)
 - [x] Pricing controls in unified Manage UI
+- [x] Retail pricing modes: Absolute or Markup % (retail-only; wholesale + market unaffected)
 - [x] Buy random singles by rarity
 - [x] List specific cards onto shelves for sale
 - [x] Booster pack generation and collection

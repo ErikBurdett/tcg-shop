@@ -8,6 +8,7 @@ from game.cards.pack import open_booster
 from game.cards.card_defs import CARD_INDEX
 from game.assets import get_asset_manager
 from game.ui.effects import draw_glow_border
+from game.sim.staff_xp import award_staff_xp_total
 
 
 class PackOpenScene(Scene):
@@ -32,6 +33,12 @@ class PackOpenScene(Scene):
         if self.app.state.inventory.booster_packs <= 0:
             return
         self.app.state.inventory.booster_packs -= 1
+        r = award_staff_xp_total(self.app.state.shopkeeper_xp, "pack_open", 1)
+        if r.gained_xp > 0:
+            self.app.state.shopkeeper_xp = int(r.new_xp)
+            self.toasts.push(f"+{r.gained_xp} Staff XP")
+            if r.leveled_up:
+                self.toasts.push(f"Staff level up! Lv {r.new_level}")
         self.revealed_cards = open_booster(self.app.rng)
         for card_id in self.revealed_cards:
             self.app.state.collection.add(card_id, 1)

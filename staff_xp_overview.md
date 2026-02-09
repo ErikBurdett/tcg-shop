@@ -29,22 +29,24 @@ This project includes a visible “staff” actor (player avatar or NPC) that ro
   - after reaching the shelf-adjacent tile, staff waits a short `stock_time` before applying stock changes
 
 ### XP + level (minimal progression)
-- **XP**: staff gains XP when a restock action succeeds.
+- **XP**: staff gains XP from **sales**, **restocking**, and **opening packs**.
 - **Level**: derived from XP (currently: \(level = 1 + \lfloor xp / 100 \rfloor\)).
+- **Awarding is centralized** in `game/sim/staff_xp.py` (pure award function + config-tunable rates).
+- **Persistence**: staff XP is saved in `GameState.shopkeeper_xp` so it survives save/load reliably.
 
 ### Rendering (viewport-safe)
 - The staff sprite is drawn inside the shop panel clip, using the same world→screen transform as customers.
 - Under the feet:
   - a small **XP bar**
-  - a cached **“Lv N”** label (only re-rendered when level changes)
+  - a cached **“S Lv N”** label (only re-rendered when level changes)
 
 ### Debug visuals
 - When the debug overlay is enabled (F3), the staff’s **path/target** is drawn in the shop viewport.
 
 ## What “restock threshold” means
 The staff considers a shelf “needs restock” when its quantity is below a threshold fraction of `max_qty`.
-- Current default: `threshold_ratio = 0.4`
-- Example: `max_qty = 10` → restock when qty ≤ 4
+- Current default in code: `restock_threshold_ratio = 0.999` (i.e., restock whenever below “full”)
+- Example: `max_qty = 10` → restock when qty ≤ 9
 
 ## Current limitations (intentional for now)
 - Staff sprite currently reuses an existing sprite as a placeholder.

@@ -20,7 +20,8 @@ This plan is based on a scan of:
   - Wrapped top bar tabs (`Scene.TABS`) and **global Start/Stop Day** buttons (bottom-middle).
   - `on_enter()` / `on_exit()` are intentionally empty stubs (`pass`).
 - **UI widgets**: `game/ui/widgets.py`
-  - Minimal immediate-mode widgets: `Button`, `Panel`, `ScrollList`, `Tooltip`.
+  - Minimal immediate-mode widgets: `Button`, `Panel`, `ScrollList`.
+  - Tooltips are centralized/cached in `game/ui/tooltip_manager.py` and integrated via `game/core/scene.py`.
 - **Shop sim model**: `game/sim/shop.py`
   - `ShopLayout` stores `objects` and `shelf_stocks`; placement prevents same-tile overlap only.
 - **Economy**: `game/sim/economy.py`

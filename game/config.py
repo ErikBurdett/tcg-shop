@@ -37,20 +37,60 @@ SEED = 1337
 
 @dataclass
 class Prices:
-    # "Retail-ish" defaults inspired by real TCG shop pricing (MTG-like).
-    booster: int = 6
-    deck: int = 25
+    # "Retail-ish" defaults (lowered for a more playable early game economy).
+    # Note: wholesale ordering costs are derived from these via a simple margin model (~60% of retail).
+    booster: int = 4
+    deck: int = 18
     single_common: int = 1
-    single_uncommon: int = 2
-    single_rare: int = 8
-    single_epic: int = 18
-    single_legendary: int = 40
+    single_uncommon: int = 2  # can't go below 1 without collapsing rarity pricing
+    single_rare: int = 6
+    single_epic: int = 12
+    single_legendary: int = 28
 
 
 DEFAULT_PRICES = Prices()
-START_MONEY = 2000
+START_MONEY = 1400  # enough to buy a counter + shelf and still order early inventory
 START_DAY = 1
 START_PACKS = 3
+
+# --- Pricing model separation ---
+# Wholesale/supplier unit costs are a distinct source of truth from retail prices.
+# Critical: player pricing changes (absolute or markup) must NOT change these supplier costs.
+WHOLESALE_UNIT_COSTS: dict[str, int] = {
+    "booster": 2,
+    "deck": 11,
+    "single_common": 1,
+    "single_uncommon": 1,
+    "single_rare": 4,
+    "single_epic": 7,
+    "single_legendary": 17,
+}
+
+# Market buy prices for random singles by rarity.
+# Critical: these are independent of player retail pricing (player cannot "move the market").
+MARKET_BUY_PRICES: dict[str, int] = {
+    "common": 1,
+    "uncommon": 2,
+    "rare": 6,
+    "epic": 12,
+    "legendary": 28,
+}
+
+# --- Staff progression XP awards ---
+# These govern the roaming staff/shopkeeper progression (shopkeeper_xp, shown under the sprite).
+# Tune these for a rewarding loop; levels are derived from total XP (see staff XP module).
+XP_PER_SALE_DOLLAR = 2.0
+XP_PER_RESTOCK_ITEM = 3.0
+XP_PER_PACK_OPENED = 12
+
+# Optional multipliers for single-card sales/restocks based on rarity.
+STAFF_XP_SINGLE_RARITY_MULT: dict[str, float] = {
+    "common": 1.0,
+    "uncommon": 1.15,
+    "rare": 1.4,
+    "epic": 1.8,
+    "legendary": 2.4,
+}
 
 # --- Customer pacing / performance safeguards ---
 # Spawn interval ramps from START -> MIN over RAMP_DAYS (inclusive-ish).

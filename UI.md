@@ -172,10 +172,12 @@ When you add filters/search later, implement them once in the Card Book view and
 ### Keep rendering cheap
 - Cache expensive surfaces (e.g., shop floor tiling) rather than recomputing each frame.
 - Use `surface.set_clip()` for scroll regions and restore it afterward.
+- Use centralized tooltip rendering via `TooltipManager` (cached surfaces + show delay) instead of ad-hoc per-frame text wrapping/renders.
 
 ### Make user actions obvious
 - Disable buttons when the action can’t succeed.
 - Provide feedback text near the relevant panel (errors like “select a shelf first”, “not enough money”, etc.).
+- When adding new scrollable lists, ensure the mouse wheel only scrolls the **hovered** list (avoid scroll “leaking” to underlying panels).
 
 ## Resources
 - Pygame UI fundamentals: [Pygame docs](https://www.pygame.org/docs/)

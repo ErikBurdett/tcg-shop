@@ -36,6 +36,13 @@ class ManageScene(Scene):
         self.buttons.clear()
         px = self.pricing_panel.rect.x + 20
         py = self.pricing_panel.rect.y + 50
+        mode_btn = Button(
+            pygame.Rect(px, self.pricing_panel.rect.y + 14, 300, 30),
+            f"Pricing Mode: {'Markup %' if self.app.state.pricing.mode == 'markup' else 'Absolute'}",
+            self._toggle_pricing_mode,
+        )
+        mode_btn.tooltip = "Toggle retail pricing mode. Wholesale ordering costs and market prices are unaffected."
+        self.buttons.append(mode_btn)
         for idx, (label, attr) in enumerate(
             [
                 ("Booster", "booster"),
@@ -49,8 +56,12 @@ class ManageScene(Scene):
         ):
             minus = Button(pygame.Rect(px + 220, py + idx * 36, 28, 28), "-", lambda a=attr: self._adjust_price(a, -1))
             plus = Button(pygame.Rect(px + 260, py + idx * 36, 28, 28), "+", lambda a=attr: self._adjust_price(a, 1))
-            minus.tooltip = f"Decrease {label} retail price by $1."
-            plus.tooltip = f"Increase {label} retail price by $1."
+            if self.app.state.pricing.mode == "markup":
+                minus.tooltip = f"Decrease {label} markup by 1% (retail only)."
+                plus.tooltip = f"Increase {label} markup by 1% (retail only)."
+            else:
+                minus.tooltip = f"Decrease {label} retail price by $1."
+                plus.tooltip = f"Increase {label} retail price by $1."
             self.buttons.extend([minus, plus])
         rx = self.reorder_panel.rect.x + 20
         ry = self.reorder_panel.rect.y + 50
@@ -100,21 +111,27 @@ class ManageScene(Scene):
                 b.tooltip = "Fill the selected shelf to capacity."
 
     def _adjust_price(self, attr: str, delta: int) -> None:
+        if self.app.state.pricing.mode == "markup":
+            cur = float(self.app.state.pricing.get_markup_pct(attr))
+            self.app.state.pricing.set_markup_pct(attr, cur + (float(delta) / 100.0))
+            self._build_buttons()
+            return
         current = getattr(self.app.state.prices, attr)
         current = max(1, current + delta)
         setattr(self.app.state.prices, attr, current)
 
-    def _wholesale_cost(self, product: str, qty: int) -> int:
-        prices = self.app.state.prices
-        if product == "booster":
-            retail = prices.booster
-        elif product == "deck":
-            retail = prices.deck
-        elif product.startswith("single_"):
-            retail = getattr(prices, product, prices.single_common)
+    def _toggle_pricing_mode(self) -> None:
+        if self.app.state.pricing.mode == "absolute":
+            self.app.state.pricing.mode = "markup"
         else:
-            retail = 1
-        return max(1, int(round(retail * 0.6 * qty)))
+            self.app.state.pricing.mode = "absolute"
+        self._build_buttons()
+
+    def _wholesale_cost(self, product: str, qty: int) -> int:
+        from game.sim.pricing import wholesale_order_total
+
+        total = wholesale_order_total(product, qty)
+        return int(total or 0)
 
     def _order_boosters(self) -> None:
         qty = 12
@@ -153,11 +170,11 @@ class ManageScene(Scene):
                     card = CARD_INDEX.get(cid)
                     if not card:
                         continue
-                    p = effective_sale_price(prices, f"single_{card.rarity}", mods)
+                    p = effective_sale_price(prices, f"single_{card.rarity}", mods, self.app.state.pricing)
                     if p:
                         value += int(p)
             elif stock.qty > 0:
-                p = effective_sale_price(prices, stock.product, mods)
+                p = effective_sale_price(prices, stock.product, mods, self.app.state.pricing)
                 if p:
                     value = int(p) * int(stock.qty)
             label = f"Shelf ({x},{y}) - {stock.product} x{stock.qty} | ${value}"
@@ -252,6 +269,8 @@ class ManageScene(Scene):
         py = self.pricing_panel.rect.y + 50
         prices = self.app.state.prices
         mods = self.app.state.skills.modifiers(get_default_skill_tree())
+        from game.sim.pricing import retail_base_price, wholesale_unit_cost
+        mode = self.app.state.pricing.mode
         lines = [
             ("Booster", "booster", int(prices.booster)),
             ("Deck", "deck", int(prices.deck)),
@@ -262,8 +281,16 @@ class ManageScene(Scene):
             ("Legendary", "single_legendary", int(prices.single_legendary)),
         ]
         for idx, (label, product, base) in enumerate(lines):
-            eff = effective_sale_price(prices, product, mods) or base
-            text = self.theme.font_small.render(f"{label}: ${base} (sell ${eff})", True, self.theme.colors.text)
+            retail = retail_base_price(prices, self.app.state.pricing, product) or base
+            eff = effective_sale_price(prices, product, mods, self.app.state.pricing) or retail
+            w = wholesale_unit_cost(product) or 0
+            if w > 0:
+                margin = int(round(((retail - w) / float(w)) * 100.0))
+                info = f"W${w} → R${retail} ({margin:+d}%) | sell ${eff}"
+            else:
+                info = f"R${retail} | sell ${eff}"
+            abs_txt = f" (abs ${base})" if mode == "markup" else ""
+            text = self.theme.font_small.render(f"{label}: {info}{abs_txt}", True, self.theme.colors.text)
             surface.blit(text, (px, py + idx * 36))
 
     def _draw_inventory(self, surface: pygame.Surface) -> None:

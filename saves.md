@@ -24,11 +24,18 @@ Each `save_slot_#.json` is a JSON dump of `GameState` plus a couple of extra met
 
 Game state includes:
 - money, day, time_seconds
-- prices
+- retail prices (`prices`)
+- retail pricing mode + markup settings (`pricing`)
 - inventory + pending orders
 - collection + deck
 - shop layout + shelf stocks (including any listed card IDs)
 - last day summary
+- player progression + skills + fixture inventory
+- staff/shopkeeper progression (`shopkeeper_xp`)
+
+Non-persisted (config-only):
+- supplier/wholesale unit costs (`WHOLESALE_UNIT_COSTS`)
+- market buy prices (`MARKET_BUY_PRICES`)
 
 ## How saving works in code
 

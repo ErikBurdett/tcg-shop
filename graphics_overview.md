@@ -176,7 +176,7 @@ Shop floor is pre-rendered as a tiled surface to reduce per-frame work.
 ### Global Pixel Sizes
 - Window: `1600x900` (resizable)
 - Base resolution: `1600x900`
-- Shop grid tiles: `48x48`
+- Shop grid tiles: **dynamic** (default `48x48`, scales with the Shop window; clamped to a sane range)
 
 ### Card Art Sizes
 - Card sprites: `64x64` (shop), `96x96` (pack reveal)

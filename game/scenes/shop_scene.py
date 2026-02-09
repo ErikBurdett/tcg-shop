@@ -35,6 +35,8 @@ from game.ui.layout import anchor_rect
 from game.sim.actors import Staff, notify_shelf_change, update_staff
 from game.config import Prices
 from game.sim.skill_tree import Modifiers
+from game.sim.packs_catalog import PACK_TYPES, pack_count
+from game.sim.staff_xp import StaffXpEventType, award_staff_xp_total
 
 MINI_GRID = (14, 8)
 MINI_TILE = 42
@@ -75,6 +77,12 @@ class ShopScene(Scene):
         self.tab_buttons: list[Button] = []
         self.revealed_cards: list[str] = []
         self.reveal_index = 0
+        # Packs tab state
+        self.pack_list = ScrollList(pygame.Rect(0, 0, 100, 100), [])
+        self.selected_pack_id: str = "booster"
+        self._pack_counts_snapshot: dict[str, int] = {}
+        self._pack_row_text: dict[str, str] = {}
+        self._pack_row_surf: dict[str, pygame.Surface] = {}
         self._top_bar_height = 48
         self._panel_padding = 16
         # UI and shop viewport offsets (shop area is centered within available space)
@@ -139,6 +147,8 @@ class ShopScene(Scene):
         self._staff_level_text: pygame.Surface | None = None
         self._staff_blocked_tiles: set[tuple[int, int]] = set()
         self._staff_blocked_count = -1
+        self._staff_xp_toast_accum = 0
+        self._staff_xp_toast_timer = 0.0
         # Skills UI state (UI-only; not saved).
         self._skills_pan = pygame.Vector2(0, 0)
         self._skills_panning = False
@@ -437,7 +447,11 @@ class ShopScene(Scene):
             x = self.order_panel.rect.x + 20
             y = self.order_panel.rect.y + 40
             set_rect_by_text("Open Pack", pygame.Rect(x, y, bw, 34))
-            set_rect_by_text("Reveal All", pygame.Rect(x, y + 46, bw, 30))
+            set_rect_by_text("Open x5", pygame.Rect(x, y + 46, bw, 30))
+            set_rect_by_text("Reveal All", pygame.Rect(x, y + 82, bw, 30))
+            # Pack list occupies remaining space in order panel.
+            top = y + 140
+            self.pack_list.rect = pygame.Rect(x, top, bw, max(40, self.order_panel.rect.bottom - top - 18))
             return
 
         if self.current_tab == "battle":
@@ -486,17 +500,22 @@ class ShopScene(Scene):
             set_rect_by_text("Epic", pygame.Rect(stock_x + half + 10, stock_y + 64, half, 28))
             set_rect_by_text("Legendary", pygame.Rect(stock_x, stock_y + 96, half, 28))
 
-            set_rect_by_text("Price -1", pygame.Rect(stock_x, stock_y + 132, half, 28))
-            set_rect_by_text("Price +1", pygame.Rect(stock_x + half + 10, stock_y + 132, half, 28))
-            set_rect_by_text("Price -5", pygame.Rect(stock_x, stock_y + 164, half, 28))
-            set_rect_by_text("Price +5", pygame.Rect(stock_x + half + 10, stock_y + 164, half, 28))
-            set_rect_by_text("Stock 1", pygame.Rect(stock_x, stock_y + 200, stock_w, 28))
-            set_rect_by_text("Stock 5", pygame.Rect(stock_x, stock_y + 232, stock_w, 28))
-            set_rect_by_text("Fill Shelf", pygame.Rect(stock_x, stock_y + 264, stock_w, 28))
-            set_rect_by_text("List Selected Card", pygame.Rect(stock_x, stock_y + 296, stock_w, 28))
-            set_rect_by_text("Prev Shelf", pygame.Rect(stock_x, stock_y + 328, stock_w, 28))
-            set_rect_by_text("Next Shelf", pygame.Rect(stock_x, stock_y + 360, stock_w, 28))
-            set_rect_by_text("Clear Selection", pygame.Rect(stock_x, stock_y + 392, stock_w, 28))
+            for b in self.buttons:
+                if b.text.startswith("Pricing Mode:"):
+                    b.rect = pygame.Rect(stock_x, stock_y + 116, stock_w, 28)
+                    break
+
+            set_rect_by_text("Price -1", pygame.Rect(stock_x, stock_y + 148, half, 28))
+            set_rect_by_text("Price +1", pygame.Rect(stock_x + half + 10, stock_y + 148, half, 28))
+            set_rect_by_text("Price -5", pygame.Rect(stock_x, stock_y + 180, half, 28))
+            set_rect_by_text("Price +5", pygame.Rect(stock_x + half + 10, stock_y + 180, half, 28))
+            set_rect_by_text("Stock 1", pygame.Rect(stock_x, stock_y + 216, stock_w, 28))
+            set_rect_by_text("Stock 5", pygame.Rect(stock_x, stock_y + 248, stock_w, 28))
+            set_rect_by_text("Fill Shelf", pygame.Rect(stock_x, stock_y + 280, stock_w, 28))
+            set_rect_by_text("List Selected Card", pygame.Rect(stock_x, stock_y + 312, stock_w, 28))
+            set_rect_by_text("Prev Shelf", pygame.Rect(stock_x, stock_y + 344, stock_w, 28))
+            set_rect_by_text("Next Shelf", pygame.Rect(stock_x, stock_y + 376, stock_w, 28))
+            set_rect_by_text("Clear Selection", pygame.Rect(stock_x, stock_y + 408, stock_w, 28))
 
             if self.manage_card_book_open:
                 book = self.book_panel.rect
@@ -566,12 +585,21 @@ class ShopScene(Scene):
         elif self.current_tab == "packs":
             x = self.order_panel.rect.x + 20
             y = self.order_panel.rect.y + 40
-            self.buttons = [
-                Button(pygame.Rect(x, y, button_width, 34), "Open Pack", self._open_pack),
-                Button(pygame.Rect(x, y + 46, button_width, 30), "Reveal All", self._reveal_all),
-            ]
-            self.buttons[0].tooltip = "Open a booster pack from your inventory and add the cards to your collection."
-            self.buttons[1].tooltip = "Reveal all cards in the current pack instantly."
+            open1 = Button(pygame.Rect(x, y, button_width, 34), "Open Pack", lambda: self._open_selected_packs(1))
+            open5 = Button(pygame.Rect(x, y + 46, button_width, 30), "Open x5", lambda: self._open_selected_packs(5))
+            reveal = Button(pygame.Rect(x, y + 82, button_width, 30), "Reveal All", self._reveal_all)
+            open1.tooltip = "Open 1 pack of the selected type."
+            open5.tooltip = "Open up to 5 packs of the selected type (safe summary)."
+            reveal.tooltip = "Reveal all cards in the currently displayed pack."
+            # Pack list occupies remaining space in the order panel.
+            top = y + 140
+            self.pack_list.rect = pygame.Rect(x, top, button_width, max(40, self.order_panel.rect.bottom - top - 18))
+            self.buttons = [open1, open5, reveal]
+            self._refresh_pack_list()
+            count = self._pack_count(self.selected_pack_id)
+            open1.enabled = count > 0
+            open5.enabled = count > 0
+            reveal.enabled = bool(self.revealed_cards) and self.reveal_index < len(self.revealed_cards)
         elif self.current_tab == "manage":
             order_x = self.order_panel.rect.x + 20
             order_y = self.order_panel.rect.y + 40
@@ -603,6 +631,11 @@ class ShopScene(Scene):
                     f"Order {singles_qty} {singles_rarity.title()} Singles (${singles_cost})",
                     self._order_singles_current,
                 ),
+                Button(
+                    pygame.Rect(stock_x, stock_y + 116, stock_width, 28),
+                    f"Pricing Mode: {'Markup %' if self.app.state.pricing.mode == 'markup' else 'Absolute'}",
+                    self._toggle_pricing_mode,
+                ),
                 Button(pygame.Rect(stock_x, stock_y, half, 28), "Booster", lambda: self._set_product("booster")),
                 Button(pygame.Rect(stock_x + half + 10, stock_y, half, 28), "Deck", lambda: self._set_product("deck")),
                 Button(pygame.Rect(stock_x, stock_y + 32, half, 28), "Common", lambda: self._set_product("single_common")),
@@ -610,25 +643,30 @@ class ShopScene(Scene):
                 Button(pygame.Rect(stock_x, stock_y + 64, half, 28), "Rare", lambda: self._set_product("single_rare")),
                 Button(pygame.Rect(stock_x + half + 10, stock_y + 64, half, 28), "Epic", lambda: self._set_product("single_epic")),
                 Button(pygame.Rect(stock_x, stock_y + 96, half, 28), "Legendary", lambda: self._set_product("single_legendary")),
-                Button(pygame.Rect(stock_x, stock_y + 132, half, 28), "Price -1", lambda: self._adjust_price(-1)),
-                Button(pygame.Rect(stock_x + half + 10, stock_y + 132, half, 28), "Price +1", lambda: self._adjust_price(1)),
-                Button(pygame.Rect(stock_x, stock_y + 164, half, 28), "Price -5", lambda: self._adjust_price(-5)),
-                Button(pygame.Rect(stock_x + half + 10, stock_y + 164, half, 28), "Price +5", lambda: self._adjust_price(5)),
-                Button(pygame.Rect(stock_x, stock_y + 200, stock_width, 28), "Stock 1", lambda: self._stock_shelf(1)),
-                Button(pygame.Rect(stock_x, stock_y + 232, stock_width, 28), "Stock 5", lambda: self._stock_shelf(5)),
-                Button(pygame.Rect(stock_x, stock_y + 264, stock_width, 28), "Fill Shelf", self._fill_shelf),
-                Button(pygame.Rect(stock_x, stock_y + 296, stock_width, 28), "List Selected Card", self._open_list_card_menu),
-                Button(pygame.Rect(stock_x, stock_y + 328, stock_width, 28), "Prev Shelf", lambda: self._select_adjacent_shelf(-1)),
-                Button(pygame.Rect(stock_x, stock_y + 360, stock_width, 28), "Next Shelf", lambda: self._select_adjacent_shelf(1)),
-                Button(pygame.Rect(stock_x, stock_y + 392, stock_width, 28), "Clear Selection", self._clear_shelf_selection),
+                Button(pygame.Rect(stock_x, stock_y + 148, half, 28), "Price -1", lambda: self._adjust_price(-1)),
+                Button(pygame.Rect(stock_x + half + 10, stock_y + 148, half, 28), "Price +1", lambda: self._adjust_price(1)),
+                Button(pygame.Rect(stock_x, stock_y + 180, half, 28), "Price -5", lambda: self._adjust_price(-5)),
+                Button(pygame.Rect(stock_x + half + 10, stock_y + 180, half, 28), "Price +5", lambda: self._adjust_price(5)),
+                Button(pygame.Rect(stock_x, stock_y + 216, stock_width, 28), "Stock 1", lambda: self._stock_shelf(1)),
+                Button(pygame.Rect(stock_x, stock_y + 248, stock_width, 28), "Stock 5", lambda: self._stock_shelf(5)),
+                Button(pygame.Rect(stock_x, stock_y + 280, stock_width, 28), "Fill Shelf", self._fill_shelf),
+                Button(pygame.Rect(stock_x, stock_y + 312, stock_width, 28), "List Selected Card", self._open_list_card_menu),
+                Button(pygame.Rect(stock_x, stock_y + 344, stock_width, 28), "Prev Shelf", lambda: self._select_adjacent_shelf(-1)),
+                Button(pygame.Rect(stock_x, stock_y + 376, stock_width, 28), "Next Shelf", lambda: self._select_adjacent_shelf(1)),
+                Button(pygame.Rect(stock_x, stock_y + 408, stock_width, 28), "Clear Selection", self._clear_shelf_selection),
             ]
             for b in self.buttons:
                 if b.text.startswith("Order "):
                     b.tooltip = "Place an order (delivers after ~30 seconds of real time)."
                 elif b.text in {"Booster", "Deck", "Common", "Uncommon", "Rare", "Epic", "Legendary"}:
                     b.tooltip = "Choose which product you want to stock onto shelves."
+                elif b.text.startswith("Pricing Mode:"):
+                    b.tooltip = "Toggle between Absolute retail pricing and Markup % pricing. Wholesale ordering costs are unchanged."
                 elif b.text.startswith("Price"):
-                    b.tooltip = "Adjust retail price (affects customer purchasing likelihood)."
+                    if self.app.state.pricing.mode == "markup":
+                        b.tooltip = "Adjust markup % for this product category (does NOT affect wholesale supplier costs)."
+                    else:
+                        b.tooltip = "Adjust absolute retail price (does NOT affect wholesale supplier costs)."
                 elif b.text.startswith("Stock"):
                     b.tooltip = "Stock the selected shelf with the selected product, consuming your inventory."
                 elif b.text == "Fill Shelf":
@@ -776,17 +814,103 @@ class ShopScene(Scene):
             self.manage_card_book_open = False
         self.current_tab = tab
         self._build_buttons()
+        if tab == "packs":
+            self._refresh_pack_list()
         if tab == "manage":
             self._refresh_shelves()
 
-    def _open_pack(self) -> None:
-        if self.app.state.inventory.booster_packs <= 0:
+    def _pack_count(self, pack_id: str) -> int:
+        return pack_count(self.app.state.inventory, pack_id)
+
+    def _award_staff_xp(self, event_type: StaffXpEventType, amount: int, *, product: str | None = None) -> None:
+        """Award staff XP (persisted in shopkeeper_xp) and show lightweight UI feedback."""
+        r = award_staff_xp_total(self.app.state.shopkeeper_xp, event_type, amount, product=product)
+        if r.gained_xp <= 0:
             return
-        self.app.state.inventory.booster_packs -= 1
-        self.revealed_cards = open_booster(self.app.rng)
-        for cid in self.revealed_cards:
-            self.app.state.collection.add(cid, 1)
-        self.reveal_index = 0
+        # Persist + sync
+        self.app.state.shopkeeper_xp = int(r.new_xp)
+        self.staff.xp = int(r.new_xp)
+        self.staff.level = int(r.new_level)
+
+        # UI: throttle spam by accumulating (especially sales).
+        if str(event_type) == "sale":
+            self._staff_xp_toast_accum += int(r.gained_xp)
+        else:
+            self.toasts.push(f"+{r.gained_xp} Staff XP")
+
+        if r.leveled_up:
+            self.toasts.push(f"Staff level up! Lv {r.new_level}")
+
+    def _refresh_pack_list(self) -> None:
+        # Rebuild list items and cache row surfaces only when a label/count changes.
+        snap: dict[str, int] = {}
+        items: list[ScrollItem] = []
+        for p in PACK_TYPES:
+            c = self._pack_count(p.pack_id)
+            snap[p.pack_id] = c
+            label = f"{p.name}  x{c}"
+            items.append(ScrollItem(p.pack_id, label, p))
+            if self._pack_row_text.get(p.pack_id) != label:
+                self._pack_row_text[p.pack_id] = label
+                self._pack_row_surf[p.pack_id] = self.theme.render_text(
+                    self.theme.font_small, label, self.theme.colors.text
+                )
+        self._pack_counts_snapshot = snap
+        self.pack_list.items = items
+        self.pack_list.on_select = self._select_pack
+
+        # Keep selection valid.
+        if self.selected_pack_id not in snap and items:
+            self.selected_pack_id = str(items[0].key)
+
+    def _select_pack(self, item: ScrollItem) -> None:
+        self.selected_pack_id = str(item.key)
+        self._build_buttons()
+
+    def _open_selected_packs(self, n: int) -> None:
+        pack_id = self.selected_pack_id
+        available = self._pack_count(pack_id)
+        if available <= 0:
+            self.toasts.push("No packs available.")
+            return
+        k = max(1, min(int(n), 5))
+        k = min(k, available)
+        if pack_id != "booster":
+            self.toasts.push("That pack type isn't implemented yet.")
+            return
+
+        total_cards = 0
+        last_pack: list[str] = []
+        opened = 0
+        for _ in range(k):
+            if self.app.state.inventory.booster_packs <= 0:
+                break
+            self.app.state.inventory.booster_packs -= 1
+            cards = open_booster(self.app.rng)
+            last_pack = cards
+            total_cards += len(cards)
+            opened += 1
+            for cid in cards:
+                self.app.state.collection.add(cid, 1)
+
+        if opened > 0:
+            self._award_staff_xp("pack_open", opened)
+
+        if k == 1:
+            self.revealed_cards = last_pack
+            self.reveal_index = 0
+        else:
+            # Safe: avoid rendering 25 cards; show last pack revealed instantly.
+            self.revealed_cards = last_pack
+            self.reveal_index = len(last_pack)
+            self.toasts.push(f"Opened {k} packs (+{total_cards} cards).")
+
+        self._refresh_pack_list()
+        self._build_buttons()
+
+    def _open_pack(self) -> None:
+        # Legacy entry point (older UI); open selected.
+        self._open_selected_packs(1)
 
     def _reveal_all(self) -> None:
         self.reveal_index = len(self.revealed_cards)
@@ -824,10 +948,24 @@ class ShopScene(Scene):
         price_attr = self._price_attr_for_product(product)
         if not price_attr:
             return
-        current = getattr(self.app.state.prices, price_attr)
-        setattr(self.app.state.prices, price_attr, max(1, current + delta))
+        if getattr(self.app.state, "pricing", None) and self.app.state.pricing.mode == "markup":
+            # In markup mode, reuse the price +/- buttons to adjust markup % (not wholesale).
+            cur = float(self.app.state.pricing.get_markup_pct(price_attr))
+            self.app.state.pricing.set_markup_pct(price_attr, cur + (float(delta) / 100.0))
+        else:
+            current = getattr(self.app.state.prices, price_attr)
+            setattr(self.app.state.prices, price_attr, max(1, current + delta))
         if self.current_tab == "manage":
             self._build_buttons()
+
+    def _toggle_pricing_mode(self) -> None:
+        if self.app.state.pricing.mode == "absolute":
+            self.app.state.pricing.mode = "markup"
+            self.toasts.push("Pricing mode: Markup %")
+        else:
+            self.app.state.pricing.mode = "absolute"
+            self.toasts.push("Pricing mode: Absolute")
+        self._build_buttons()
 
     def _price_attr_for_product(self, product: str) -> str | None:
         if product == "booster":
@@ -839,17 +977,15 @@ class ShopScene(Scene):
         return None
 
     def _card_value(self, rarity: str) -> int:
-        prices = self.app.state.prices
-        return {
-            "common": prices.single_common,
-            "uncommon": prices.single_uncommon,
-            "rare": prices.single_rare,
-            "epic": prices.single_epic,
-            "legendary": prices.single_legendary,
-        }.get(rarity, prices.single_common)
+        # "Value" is market value, not player-retail (player cannot change the market).
+        from game.sim.pricing import market_buy_price_single
+
+        return market_buy_price_single(rarity)
 
     def _market_buy_price(self, rarity: str) -> int:
-        return self._card_value(rarity)
+        from game.sim.pricing import market_buy_price_single
+
+        return market_buy_price_single(rarity)
 
     def _prev_market_rarity(self) -> None:
         self.market_rarity_index = (self.market_rarity_index - 1) % len(RARITIES)
@@ -880,16 +1016,10 @@ class ShopScene(Scene):
         return "single_common"
 
     def _wholesale_cost(self, product: str, qty: int) -> int:
-        prices = self.app.state.prices
-        if product == "booster":
-            retail = prices.booster
-        elif product == "deck":
-            retail = prices.deck
-        elif product.startswith("single_"):
-            retail = getattr(prices, product, prices.single_common)
-        else:
-            retail = 1
-        return max(1, int(round(retail * 0.6 * qty)))
+        from game.sim.pricing import wholesale_order_total
+
+        total = wholesale_order_total(product, qty)
+        return int(total or 0)
 
     def _add_selected_card(self) -> None:
         if not self.selected_card_id:
@@ -955,12 +1085,12 @@ class ShopScene(Scene):
                 if not card:
                     continue
                 product = f"single_{card.rarity}"
-                p = effective_sale_price(prices, product, mods)
+                p = effective_sale_price(prices, product, mods, self.app.state.pricing)
                 if p:
                     total += int(p)
             return int(total)
         # Bulk products
-        p = effective_sale_price(prices, stock.product, mods)
+        p = effective_sale_price(prices, stock.product, mods, self.app.state.pricing)
         if not p:
             return 0
         return int(p) * int(stock.qty)
@@ -1027,6 +1157,7 @@ class ShopScene(Scene):
         if hasattr(shelf, "cards"):
             shelf.cards.clear()
         shelf.qty += to_add
+        self._award_staff_xp("restock", to_add, product=product)
         self._refresh_shelves()
 
     def _can_list_selected_card_to_shelf(self) -> bool:
@@ -1225,6 +1356,18 @@ class ShopScene(Scene):
                 return
         for btn in self.tab_buttons:
             btn.handle_event(event)
+        if self.current_tab == "packs":
+            # Scroll/click only affects the hovered pack list (avoid wheel scrolling other panels).
+            if event.type == pygame.MOUSEMOTION:
+                self.pack_list.handle_event(event)
+            if event.type == pygame.MOUSEWHEEL:
+                if self.pack_list.rect.collidepoint(pygame.mouse.get_pos()):
+                    self.pack_list.handle_event(event)
+                    return
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if self.pack_list.rect.collidepoint(event.pos):
+                    self.pack_list.handle_event(event)
+                    return
         if self.current_tab == "manage":
             in_book = False
             if self.manage_card_book_open:
@@ -1315,8 +1458,27 @@ class ShopScene(Scene):
             button.update(dt)
         if self.cycle_active and not self.cycle_paused:
             self._update_cycle(dt)
-        if self.current_tab == "packs" and self.revealed_cards and self.reveal_index < len(self.revealed_cards):
-            self.reveal_index += 1
+        if self.current_tab == "packs":
+            if any(self._pack_counts_snapshot.get(p.pack_id) != self._pack_count(p.pack_id) for p in PACK_TYPES):
+                self._refresh_pack_list()
+            if self.revealed_cards and self.reveal_index < len(self.revealed_cards):
+                self.reveal_index += 1
+            # Keep pack button enabled states in sync without rebuilding UI.
+            count = self._pack_count(self.selected_pack_id)
+            for b in self.buttons:
+                if b.text in {"Open Pack", "Open x5"}:
+                    b.enabled = count > 0
+                elif b.text == "Reveal All":
+                    b.enabled = bool(self.revealed_cards) and self.reveal_index < len(self.revealed_cards)
+        # Flush aggregated staff XP toast (reduces spam for frequent events like sales).
+        if self._staff_xp_toast_accum > 0:
+            self._staff_xp_toast_timer += dt
+            if self._staff_xp_toast_timer >= 0.75:
+                self.toasts.push(f"+{self._staff_xp_toast_accum} Staff XP")
+                self._staff_xp_toast_accum = 0
+                self._staff_xp_toast_timer = 0.0
+        else:
+            self._staff_xp_toast_timer = 0.0
 
     def _update_cycle(self, dt: float) -> None:
         # Fade-out tint when a new day starts.
@@ -1377,7 +1539,7 @@ class ShopScene(Scene):
         # Sync persisted shopkeeper XP <-> staff actor (so load/save works reliably).
         if self.staff.xp != self.app.state.shopkeeper_xp:
             self.staff.xp = int(self.app.state.shopkeeper_xp)
-        did = update_staff(
+        res = update_staff(
             self.staff,
             dt,
             grid=SHOP_GRID,
@@ -1388,9 +1550,12 @@ class ShopScene(Scene):
             collection=self.app.state.collection,
             deck=self.app.state.deck,
         )
+        # Award staff XP for restocking only when items actually moved onto a shelf.
+        if res.did_restock and res.items_moved > 0:
+            self._award_staff_xp("restock", int(res.items_moved), product=res.product)
         if self.app.state.shopkeeper_xp != self.staff.xp:
             self.app.state.shopkeeper_xp = int(self.staff.xp)
-        if did and self.current_tab == "manage":
+        if res.did_restock and self.current_tab == "manage":
             self._refresh_shelves()
             self._build_buttons()
 
@@ -1454,7 +1619,28 @@ class ShopScene(Scene):
         if not available:
             return None
         products = [prod for _, prod in available]
-        chosen = choose_purchase(self.app.state.prices, products, self.app.rng)
+        # Demand weighting should use the same retail base prices that drive actual sale price,
+        # without mutating the player's stored absolute prices.
+        if self.app.state.pricing.mode == "markup":
+            from game.config import Prices
+            from game.sim.pricing import retail_base_price
+
+            base = self.app.state.prices
+            demand = Prices(**base.__dict__)
+            demand.booster = retail_base_price(base, self.app.state.pricing, "booster") or demand.booster
+            demand.deck = retail_base_price(base, self.app.state.pricing, "deck") or demand.deck
+            demand.single_common = retail_base_price(base, self.app.state.pricing, "single_common") or demand.single_common
+            demand.single_uncommon = (
+                retail_base_price(base, self.app.state.pricing, "single_uncommon") or demand.single_uncommon
+            )
+            demand.single_rare = retail_base_price(base, self.app.state.pricing, "single_rare") or demand.single_rare
+            demand.single_epic = retail_base_price(base, self.app.state.pricing, "single_epic") or demand.single_epic
+            demand.single_legendary = (
+                retail_base_price(base, self.app.state.pricing, "single_legendary") or demand.single_legendary
+            )
+            chosen = choose_purchase(demand, products, self.app.rng)
+        else:
+            chosen = choose_purchase(self.app.state.prices, products, self.app.rng)
         if chosen == "none":
             return None
         candidates = [item for item in available if item[1] == chosen]
@@ -1467,7 +1653,7 @@ class ShopScene(Scene):
         if not stock or stock.qty <= 0:
             return
         mods = self.app.state.skills.modifiers(get_default_skill_tree())
-        price = effective_sale_price(prices, product, mods)
+        price = effective_sale_price(prices, product, mods, self.app.state.pricing)
         if price is None:
             return
         if product.startswith("single_") and getattr(stock, "cards", None):
@@ -1488,6 +1674,7 @@ class ShopScene(Scene):
         self.app.state.money += price
         self.app.state.last_summary.revenue += price
         self.app.state.last_summary.units_sold += 1
+        self._award_staff_xp("sale", int(price), product=product)
         res = self.app.state.progression.add_xp(xp_from_sale(price, mods))
         if res.gained_levels > 0:
             self.toasts.push(f"Level up! Lv {self.app.state.progression.level} (+{res.gained_skill_points} SP)")
@@ -1785,10 +1972,11 @@ class ShopScene(Scene):
             rect = pygame.Rect(int(px - 10), int(py - 18), 20, 20)
             pygame.draw.rect(surface, (160, 220, 255), rect)
 
-        # XP + level indicator is the player's progression (persistent), not the internal restock XP.
-        prog = self.app.state.progression
-        frac = prog.progress_frac()
-        level = int(prog.level)
+        # XP + level indicator is the staff/shopkeeper progression (shopkeeper_xp).
+        # Level formula matches game.sim.staff_xp.staff_level_from_xp (100 XP per level).
+        xp_total = max(0, int(self.staff.xp))
+        frac = float(xp_total % 100) / 100.0
+        level = int(self.staff.level)
         bar_w = max(24, min(42, size))
         bar_h = 4
         bar_x = int(px - bar_w // 2)
@@ -1802,7 +1990,7 @@ class ShopScene(Scene):
         if level != self._staff_level_cached or self._staff_level_text is None:
             self._staff_level_cached = level
             self._staff_level_text = self.theme.render_text(
-                self.theme.font_small, f"Lv {level}", self.theme.colors.muted
+                self.theme.font_small, f"S Lv {level}", self.theme.colors.muted
             )
         if self._staff_level_text:
             surface.blit(self._staff_level_text, (bar_x, bar_y + 6))
@@ -1854,10 +2042,42 @@ class ShopScene(Scene):
             surface.blit(summary_text, (x_off, status_y))
 
     def _draw_packs(self, surface: pygame.Surface) -> None:
+        # Pack list (scrollable, clipped).
+        pygame.draw.rect(surface, self.theme.colors.panel_alt, self.pack_list.rect)
+        pygame.draw.rect(surface, self.theme.colors.border, self.pack_list.rect, 1)
+        header = self.theme.render_text(
+            self.theme.font_small,
+            f"Selected: {self.selected_pack_id}  Available: {self._pack_count(self.selected_pack_id)}",
+            self.theme.colors.muted,
+        )
+        surface.blit(header, (self.pack_list.rect.x, self.pack_list.rect.y - 18))
+
+        clip = surface.get_clip()
+        surface.set_clip(self.pack_list.rect)
+        ih = self.pack_list.item_height
+        start = max(0, int(self.pack_list.scroll_offset) // max(1, ih))
+        visible = (self.pack_list.rect.height // max(1, ih)) + 2
+        end = min(len(self.pack_list.items), start + visible)
+        y = self.pack_list.rect.y + start * ih - self.pack_list.scroll_offset
+        for idx in range(start, end):
+            item = self.pack_list.items[idx]
+            item_rect = pygame.Rect(self.pack_list.rect.x, y, self.pack_list.rect.width, self.pack_list.item_height)
+            if idx == self.pack_list.hover_index:
+                pygame.draw.rect(surface, self.theme.colors.panel, item_rect)
+            if str(item.key) == self.selected_pack_id:
+                pygame.draw.rect(surface, self.theme.colors.accent_hover, item_rect, 2)
+            surf = self._pack_row_surf.get(str(item.key))
+            if surf:
+                surface.blit(surf, (item_rect.x + 6, item_rect.y + 6))
+            y += ih
+        surface.set_clip(clip)
+
+        # Revealed cards preview (last opened pack).
         asset_mgr = get_asset_manager()
-        y = SHOP_GRID[1] * self.tile_px + self._shop_y_offset + 60
-        for idx, card_id in enumerate(self.revealed_cards):
-            rect = pygame.Rect(20 + idx * 130, y, 120, 160)
+        base_x = self.shop_panel.rect.x + 20
+        base_y = max(self.shop_panel.rect.y + 40, self.shop_panel.rect.bottom - 190)
+        for idx, card_id in enumerate(self.revealed_cards[:5]):
+            rect = pygame.Rect(base_x + idx * 130, base_y, 120, 160)
             if idx < self.reveal_index:
                 card = CARD_INDEX[card_id]
                 bg = asset_mgr.create_card_background(card.rarity, (rect.width, rect.height))
@@ -1867,17 +2087,11 @@ class ShopScene(Scene):
                     surface.blit(sprite, (rect.x + 28, rect.y + 15))
                 rarity_color = getattr(self.theme.colors, f"card_{card.rarity}")
                 draw_glow_border(surface, rect, rarity_color, border_width=2, glow_radius=4, glow_alpha=80)
-                id_text = self.theme.render_text(self.theme.font_small, card.card_id.upper(), self.theme.colors.muted)
-                surface.blit(id_text, (rect.x + 6, rect.y + 4))
                 name = self.theme.render_text(self.theme.font_small, card.name[:12], self.theme.colors.text)
-                surface.blit(name, (rect.x + 6, rect.y + 20))
-                desc = (card.description[:18] + "...") if len(card.description) > 18 else card.description
-                desc_text = self.theme.render_text(self.theme.font_small, desc, self.theme.colors.muted)
-                surface.blit(desc_text, (rect.x + 6, rect.y + 100))
-                stats = self.theme.render_text(
-                    self.theme.font_small, f"{card.cost}/{card.attack}/{card.health}", self.theme.colors.text
-                )
-                surface.blit(stats, (rect.x + 6, rect.bottom - 18))
+                surface.blit(name, (rect.x + 6, rect.y + 4))
+            else:
+                pygame.draw.rect(surface, self.theme.colors.panel_alt, rect)
+                pygame.draw.rect(surface, self.theme.colors.border, rect, 2)
 
     def _select_shelf_at_pos(self, pos: tuple[int, int]) -> str | None:
         if not self._shop_inner_rect().collidepoint(pos):
@@ -2045,9 +2259,25 @@ class ShopScene(Scene):
         price_attr = self._price_attr_for_product(product)
         price_value = getattr(self.app.state.prices, price_attr) if price_attr else 0
         mods = self.app.state.skills.modifiers(get_default_skill_tree())
-        eff = effective_sale_price(self.app.state.prices, product, mods) or int(price_value)
+        eff = effective_sale_price(self.app.state.prices, product, mods, self.app.state.pricing) or int(price_value)
+        from game.sim.pricing import retail_base_price, wholesale_unit_cost
+
+        base_retail = retail_base_price(self.app.state.prices, self.app.state.pricing, product) or int(price_value)
+        w = wholesale_unit_cost(product) or 0
+        if self.app.state.pricing.mode == "markup" and price_attr:
+            mk = int(round(self.app.state.pricing.get_markup_pct(price_attr) * 100.0))
+            mk_txt = f" | Markup {mk}%"
+        else:
+            mk_txt = ""
+        if w > 0:
+            margin_pct = int(round(((base_retail - w) / float(w)) * 100.0))
+            margin_txt = f" | Wholesale ${w} | Retail ${base_retail} ({margin_pct:+d}%)"
+        else:
+            margin_txt = ""
         prod_text = self.theme.render_text(
-            self.theme.font_small, f"Product: {product} | Base: ${price_value} | Sell: ${eff}", self.theme.colors.text
+            self.theme.font_small,
+            f"Product: {product} | Mode {self.app.state.pricing.mode}{mk_txt} | Sell ${eff}{margin_txt}",
+            self.theme.colors.text,
         )
         surface.blit(prod_text, (self.stock_panel.rect.x + 20, self.stock_panel.rect.bottom + 8))
         selected = self.selected_shelf_key or "None"

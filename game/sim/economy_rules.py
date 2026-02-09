@@ -4,17 +4,11 @@ from dataclasses import dataclass
 
 from game.config import Prices
 from game.sim.skill_tree import Modifiers
+from game.sim.pricing import PricingSettings, retail_base_price
 
 
-def base_price_for_product(prices: Prices, product: str) -> int | None:
-    if product == "booster":
-        return int(prices.booster)
-    if product == "deck":
-        return int(prices.deck)
-    if product.startswith("single_"):
-        rarity = product.replace("single_", "")
-        return int(getattr(prices, f"single_{rarity}"))
-    return None
+def base_price_for_product(prices: Prices, product: str, pricing: PricingSettings) -> int | None:
+    return retail_base_price(prices, pricing, product)
 
 
 def apply_sell_price_pct(base_price: int, sell_price_pct: float) -> int:
@@ -23,8 +17,8 @@ def apply_sell_price_pct(base_price: int, sell_price_pct: float) -> int:
     return max(1, p)
 
 
-def effective_sale_price(prices: Prices, product: str, mods: Modifiers) -> int | None:
-    base = base_price_for_product(prices, product)
+def effective_sale_price(prices: Prices, product: str, mods: Modifiers, pricing: PricingSettings) -> int | None:
+    base = base_price_for_product(prices, product, pricing)
     if base is None:
         return None
     return apply_sell_price_pct(base, mods.sell_price_pct)

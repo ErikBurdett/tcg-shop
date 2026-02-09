@@ -30,6 +30,7 @@ from game.scenes.results_scene import ResultsScene
 from game.assets import get_asset_manager
 from game.sim.economy_rules import fixture_cost
 from game.sim.skill_tree import Modifiers, get_default_skill_tree
+from game.sim.pricing import PricingSettings
 
 
 @dataclass
@@ -56,6 +57,7 @@ class GameState:
     skills: SkillTreeState
     fixtures: FixtureInventory
     shopkeeper_xp: int
+    pricing: PricingSettings
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -73,6 +75,7 @@ class GameState:
             "skills": self.skills.to_dict(),
             "fixtures": self.fixtures.to_dict(),
             "shopkeeper_xp": int(self.shopkeeper_xp),
+            "pricing": self.pricing.to_dict(),
         }
 
     @classmethod
@@ -95,6 +98,7 @@ class GameState:
             skills=skills,
             fixtures=FixtureInventory.from_dict(data.get("fixtures")),
             shopkeeper_xp=max(0, int(data.get("shopkeeper_xp", 0))),
+            pricing=PricingSettings.from_dict(data.get("pricing")),
         )
 
 
@@ -150,6 +154,7 @@ class GameApp:
             skills=SkillTreeState(),
             fixtures=FixtureInventory(),
             shopkeeper_xp=0,
+            pricing=PricingSettings(),
         )
 
     def _build_scenes(self) -> None:

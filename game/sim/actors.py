@@ -217,13 +217,13 @@ def apply_restock(
     collection: CardCollection,
     deck: Deck,
     amount: int = 2,
-) -> bool:
-    """Apply the restock changes. Returns True if something was stocked."""
+) -> int:
+    """Apply the restock changes. Returns number of items stocked."""
     stock = shelf_stocks.get(plan.shelf_key)
     if not stock:
-        return False
+        return 0
     if stock.qty >= stock.max_qty:
-        return False
+        return 0
     capacity = stock.max_qty - stock.qty
 
     # Listed card shelf
@@ -232,43 +232,43 @@ def apply_restock(
         owned = collection.get(cid)
         in_deck = deck.cards.get(cid, 0)
         if owned <= in_deck:
-            return False
+            return 0
         if not getattr(stock, "cards", None):
-            return False
+            return 0
         if not collection.remove(cid, 1):
-            return False
+            return 0
         stock.cards.append(cid)
         stock.qty = len(stock.cards)
         stock.product = plan.product
-        return True
+        return 1
 
     # Bulk inventory
     to_add = min(amount, capacity)
     if plan.product == "booster":
         to_add = min(to_add, inventory.booster_packs)
         if to_add <= 0:
-            return False
+            return 0
         inventory.booster_packs -= to_add
     elif plan.product == "deck":
         to_add = min(to_add, inventory.decks)
         if to_add <= 0:
-            return False
+            return 0
         inventory.decks -= to_add
     elif plan.product.startswith("single_"):
         rarity = plan.product.replace("single_", "")
         available = inventory.singles.get(rarity, 0)
         to_add = min(to_add, available)
         if to_add <= 0:
-            return False
+            return 0
         inventory.singles[rarity] = available - to_add
     else:
-        return False
+        return 0
 
     stock.product = plan.product
     if hasattr(stock, "cards"):
         stock.cards.clear()
     stock.qty += to_add
-    return to_add > 0
+    return int(to_add)
 
 
 def _pickup_at_counter(staff: Staff, *, inventory: Inventory, preferred_single_rarity: str | None) -> None:
@@ -312,18 +312,18 @@ def _pickup_at_counter(staff: Staff, *, inventory: Inventory, preferred_single_r
         remaining -= take
 
 
-def _deliver_from_carry(staff: Staff, plan: RestockPlan, *, shelf_stocks: dict[str, ShelfStock]) -> bool:
+def _deliver_from_carry(staff: Staff, plan: RestockPlan, *, shelf_stocks: dict[str, ShelfStock]) -> int:
     """Restock a shelf using carried items (no inventory reads)."""
     stock = shelf_stocks.get(plan.shelf_key)
     if not stock:
-        return False
+        return 0
     if stock.max_qty <= 0:
-        return False
+        return 0
     if stock.qty >= stock.max_qty:
-        return False
+        return 0
     capacity = int(stock.max_qty - stock.qty)
     if capacity <= 0:
-        return False
+        return 0
 
     product = stock.product
     # If shelf is truly empty, allow plan to set a product.
@@ -345,31 +345,38 @@ def _deliver_from_carry(staff: Staff, plan: RestockPlan, *, shelf_stocks: dict[s
     if product == "booster":
         to_add = min(capacity, int(staff.carry_boosters))
         if to_add <= 0:
-            return False
+            return 0
         staff.carry_boosters -= to_add
         stock.product = "booster"
         stock.qty += to_add
-        return True
+        return int(to_add)
     if product == "deck":
         to_add = min(capacity, int(staff.carry_decks))
         if to_add <= 0:
-            return False
+            return 0
         staff.carry_decks -= to_add
         stock.product = "deck"
         stock.qty += to_add
-        return True
+        return int(to_add)
     if product.startswith("single_"):
         rarity = product.replace("single_", "")
         to_add = min(capacity, int(staff.carry_singles.get(rarity, 0)))
         if to_add <= 0:
-            return False
+            return 0
         staff.carry_singles[rarity] = int(staff.carry_singles.get(rarity, 0)) - to_add
         stock.product = product
         stock.qty += to_add
         if hasattr(stock, "cards"):
             stock.cards.clear()
-        return True
-    return False
+        return int(to_add)
+    return 0
+
+
+@dataclass(frozen=True)
+class StaffRestockResult:
+    did_restock: bool
+    items_moved: int = 0
+    product: str | None = None
 
 
 def update_staff(
@@ -385,9 +392,8 @@ def update_staff(
     deck: Deck,
     restock_threshold_ratio: float = 0.999,
     stock_time: float = 0.8,
-) -> bool:
+) -> StaffRestockResult:
     """Advance staff state machine."""
-    did_restock = False
     # Throttled scanning (avoid O(N shelves) each frame).
     staff.scan_cooldown = max(0.0, staff.scan_cooldown - dt)
 
@@ -400,28 +406,27 @@ def update_staff(
         if staff.stock_timer <= 0.0 and staff.plan:
             # For listed-card shelves, fall back to legacy restock (collection-based).
             if staff.plan.card_id:
-                if apply_restock(
+                moved = apply_restock(
                     staff.plan, shelf_stocks=shelf_stocks, inventory=inventory, collection=collection, deck=deck
-                ):
-                    staff.xp += 10
-                    did_restock = True
+                )
             else:
-                if _deliver_from_carry(staff, staff.plan, shelf_stocks=shelf_stocks):
-                    staff.xp += 6
-                    did_restock = True
+                moved = _deliver_from_carry(staff, staff.plan, shelf_stocks=shelf_stocks)
+            product = staff.plan.product
             staff.plan = None
             staff.target_shelf_key = None
             staff.target_tile = None
             staff.path.clear()
             staff.state = "idle"
             staff.task = "none"
-        return did_restock
+            if moved > 0:
+                return StaffRestockResult(True, int(moved), str(product))
+        return StaffRestockResult(False)
 
     if staff.state == "moving":
         # Follow cached path tile-by-tile (tile-space movement).
         if not staff.target_tile:
             staff.state = "idle"
-            return
+            return StaffRestockResult(False)
         px, py = staff.pos
         if staff.path:
             next_tile = staff.path[0]
@@ -448,14 +453,14 @@ def update_staff(
                     if not staff.plan:
                         staff.state = "idle"
                         staff.task = "none"
-                        return did_restock
+                        return StaffRestockResult(False)
                     shelf_tile = _parse_key(staff.plan.shelf_key)
                     walk_tiles = _adjacent_walk_tiles(shelf_tile, grid=grid, blocked=blocked_tiles)
                     if not walk_tiles:
                         staff.state = "idle"
                         staff.task = "none"
                         staff.plan = None
-                        return did_restock
+                        return StaffRestockResult(False)
                     walk_tiles.sort(key=lambda t: _manhattan((int(staff.pos[0]), int(staff.pos[1])), t))
                     dest = walk_tiles[0]
                     staff_tile = (int(staff.pos[0]), int(staff.pos[1]))
@@ -463,12 +468,12 @@ def update_staff(
                     staff.target_tile = dest
                     staff.path = path
                     staff.state = "moving"
-                    return did_restock
+                    return StaffRestockResult(False)
 
                 staff.state = "stocking"
                 staff.stock_timer = stock_time
             staff.pos = (tx, ty)
-            return did_restock
+            return StaffRestockResult(False)
 
         import math
 
@@ -478,14 +483,14 @@ def update_staff(
             staff.pos = (tx, ty)
         else:
             staff.pos = (px + dx / dist * step, py + dy / dist * step)
-        return did_restock
+        return StaffRestockResult(False)
 
     # Idle: scan for work occasionally.
     if staff.state != "idle":
         staff.state = "idle"
 
     if staff.scan_cooldown > 0:
-        return did_restock
+        return StaffRestockResult(False)
     staff.scan_cooldown = 0.8
 
     staff_tile = (int(staff.pos[0]), int(staff.pos[1]))
@@ -506,7 +511,7 @@ def update_staff(
             threshold_ratio=restock_threshold_ratio,
         )
     if not plan:
-        return did_restock
+        return StaffRestockResult(False)
 
     # If plan points at a shelf that is truly empty, choose what to put on it based on carry/inventory.
     stock = shelf_stocks.get(plan.shelf_key)
@@ -543,7 +548,7 @@ def update_staff(
         # Walk to a tile adjacent to the counter.
         walk_tiles = _adjacent_walk_tiles(counter_tile, grid=grid, blocked=blocked_tiles)
         if not walk_tiles:
-            return did_restock
+            return StaffRestockResult(False)
         walk_tiles.sort(key=lambda t: _manhattan(staff_tile, t))
         dest = walk_tiles[0]
         path = _bfs_path(staff_tile, dest, grid=grid, blocked=blocked_tiles) or []
@@ -551,13 +556,13 @@ def update_staff(
         staff.path = path
         staff.task = "pickup"
         staff.state = "moving"
-        return did_restock
+        return StaffRestockResult(False)
 
     # Otherwise, go directly to the shelf to deliver.
     shelf_tile = _parse_key(plan.shelf_key)
     walk_tiles = _adjacent_walk_tiles(shelf_tile, grid=grid, blocked=blocked_tiles)
     if not walk_tiles:
-        return did_restock
+        return StaffRestockResult(False)
     walk_tiles.sort(key=lambda t: _manhattan(staff_tile, t))
     dest = walk_tiles[0]
     path = _bfs_path(staff_tile, dest, grid=grid, blocked=blocked_tiles) or []
@@ -565,5 +570,5 @@ def update_staff(
     staff.path = path
     staff.task = "deliver"
     staff.state = "moving"
-    return did_restock
+    return StaffRestockResult(False)
 

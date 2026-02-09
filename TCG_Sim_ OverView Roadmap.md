@@ -8,7 +8,7 @@ Key implemented loops (from docs + code):
 
 - Shop day simulation : Customers spawn and walk through a simple flow (shelf → counter → exit). Purchases decrement shelf stock and add cash + revenue summaries, then the day ends and the game is saved.
 
-- Inventory / management : There’s an explicit Manage scene for pricing and re‑ordering as a separate UI, and a Manage tab in the shop scene for shelf stocking and ordering (with some overlap). The Manage scene uses pending_orders (applied later), while the Shop scene applies orders immediately, which is an important inconsistency to resolve in the next iteration.
+- Inventory / management : There’s an explicit Manage scene for pricing and re‑ordering as a separate UI, and a Manage tab in the shop scene for shelf stocking and ordering. Orders are represented as `pending_orders` with real-time delivery (`deliver_at`) and are applied when delivery time is reached.
 
 - Card system : Cards are currently hardcoded in card_defs.py (common/uncommon/rare/etc. lists), and pack opening uses a fixed rarity distribution + deterministic 3 common + 1 uncommon + 1 rare+ slot (with RNG).
 
@@ -50,11 +50,7 @@ What’s implemented (confirmed):
 
 What’s flagged as missing (confirmed):
 
-- Pricing controls in unified Manage UI (still in separate ManageScene).
-
-- Delayed order delivery (orders are instant).
-
-- Auto‑restock / demand forecasting.
+- Demand forecasting / smarter auto‑restock (a roaming staff actor exists; forecasting is still missing).
 
 - Pack opening FX + pack art.
 
@@ -68,7 +64,7 @@ What’s flagged as missing (confirmed):
 
 Evidence in code:
 
-- Orders are instant or next‑tick : ShopScene applies orders immediately to inventory; ManageScene adds pending_orders that are applied at day start, but still no delivery delay model.
+- Orders are delayed in real time: ordering creates `pending_orders` with `deliver_at` (ETA ~30s) and inventory is updated only when delivery time is reached.
 
 - Placement lacks collision/validation : ShopLayout doesn’t check occupancy or walkability; it just appends an object if in bounds.
 
@@ -84,9 +80,9 @@ Goal: Make current loops reliable and testable.
 
 - Placement validation & occupancy map Add grid occupancy checks in ShopLayout.place to prevent overlaps and ensure walkable tiles.
 
-- Delayed orders (delivery queue) Convert InventoryOrder into a model with arrival_day so orders arrive in future days. Right now, orders are applied immediately or on day start without delay.
+- Delayed orders (delivery queue) ✅ Implemented as a real-time delivery queue (`deliver_at` timestamps). Next improvement would be richer supplier UI/receipts, not the delivery mechanism itself.
 
-- Unified pricing controls in Manage tab Pricing is currently in ManageScene , not the ShopScene Manage tab. Merge or embed pricing controls for UX consistency.
+- Unified pricing controls in Manage tab ✅ Implemented in the unified ShopScene Manage tab (and the legacy ManageScene remains available).
 
 - Battle UI cohesion Keep battles in the unified UI or enhance with a cohesive “battle pane” to match the project’s single‑screen UX goal.
 
@@ -366,9 +362,7 @@ C) Tileable environment prompt
 
 Most impactful next upgrades:
 
-- Delayed orders + supplier pipeline (pending_orders with arrival day).
-
-- Unified pricing controls inside ShopScene Manage tab.
+- Supplier UX improvements (delivery receipts, supplier “catalog”, bulk deals), building on the existing real-time `pending_orders` + `deliver_at` model.
 
 - Battle rewards / progression loop (tie battle to shop).
 
