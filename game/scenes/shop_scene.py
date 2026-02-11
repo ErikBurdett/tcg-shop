@@ -77,6 +77,7 @@ class ShopScene(Scene):
         self.selected_object = "shelf"
         self.current_tab = "shop"
         self.tabs = ["shop", "packs", "sell", "deck", "manage", "stats", "skills", "battle"]
+        self.order_tabs = ["shop", "packs", "sell", "deck", "manage", "battle"]
         self.tab_buttons: list[Button] = []
         self.mobile_nav_open = False
         self._mobile_breakpoint = 980
@@ -126,6 +127,7 @@ class ShopScene(Scene):
         self._last_screen_size = self.app.screen.get_size()
         self.shop_panel = Panel(pygame.Rect(0, 0, 640, 520), "Shop")
         self.order_panel = Panel(pygame.Rect(0, 0, 280, 240), "Ordering")
+        self.order_panels: dict[str, Panel] = {tab: Panel(self.order_panel.rect.copy(), f"{tab.title()} Ordering") for tab in self.order_tabs}
         self.stock_panel = Panel(pygame.Rect(0, 0, 280, 280), "Stocking")
         self.inventory_panel = Panel(pygame.Rect(0, 0, 280, 240), "Inventory")
         self.book_panel = Panel(pygame.Rect(0, 0, 540, 520), "Card Book")
@@ -199,6 +201,9 @@ class ShopScene(Scene):
         self._layout()
         self._build_buttons()
         self._init_assets()
+
+    def _sync_active_order_panel(self) -> None:
+        self.order_panel = self.order_panels.get(self.current_tab, self.order_panels.get("shop", self.order_panel))
 
     def debug_lines(self) -> list[str]:
         if self._drag_target:
@@ -350,7 +355,8 @@ class ShopScene(Scene):
                 max(520, int(height * 0.62)),
             )
         else:
-            order_rect = self._clamp_rect(self.order_panel.rect.copy(), width, height)
+            active_order = self.order_panels.get(self.current_tab, self.order_panel)
+            order_rect = self._clamp_rect(active_order.rect.copy(), width, height)
             stock_rect = self._clamp_rect(self.stock_panel.rect.copy(), width, height)
             inv_rect = self._clamp_rect(self.inventory_panel.rect.copy(), width, height)
             list_rect = self.shelf_list.rect.copy()
@@ -360,7 +366,16 @@ class ShopScene(Scene):
             shop_rect = self._clamp_rect(self.shop_panel.rect.copy(), width, height)
             skills_rect = self._clamp_rect(self.skills_panel.rect.copy(), width, height)
             stats_rect = self._clamp_rect(self.stats_panel.rect.copy(), width, height)
-        self.order_panel = Panel(order_rect, "Ordering")
+        if not self._layout_initialized:
+            self.order_panels = {tab: Panel(order_rect.copy(), f"{tab.title()} Ordering") for tab in self.order_tabs}
+        else:
+            updated: dict[str, Panel] = {}
+            for tab in self.order_tabs:
+                prev = self.order_panels.get(tab, self.order_panel)
+                rect = self._clamp_rect(prev.rect.copy(), width, height)
+                updated[tab] = Panel(rect, f"{tab.title()} Ordering")
+            self.order_panels = updated
+        self._sync_active_order_panel()
         self.stock_panel = Panel(stock_rect, "Stocking")
         self.inventory_panel = Panel(inv_rect, "Inventory")
         self.book_panel = Panel(book_rect, "Card Book")
@@ -1037,6 +1052,7 @@ class ShopScene(Scene):
             self.minimized_tabs.remove(tab)
         self.open_tabs.add(tab)
         self.current_tab = tab
+        self._sync_active_order_panel()
         self.minimized_tray_open = False
         self._build_buttons()
         self._build_tab_btns()
@@ -1118,6 +1134,7 @@ class ShopScene(Scene):
         if tab == "shop":
             self.open_tabs.add("shop")
             self.current_tab = "shop"
+            self._sync_active_order_panel()
             self._build_buttons()
             return
 
@@ -1126,6 +1143,7 @@ class ShopScene(Scene):
             if tab not in self.minimized_tabs:
                 self.minimized_tabs.append(tab)
             self.current_tab = "shop"
+            self._sync_active_order_panel()
             self.manage_card_book_open = False
             self._build_buttons()
             self._build_tab_btns()
@@ -1138,6 +1156,7 @@ class ShopScene(Scene):
         if tab != "manage":
             self.manage_card_book_open = False
         self.current_tab = tab
+        self._sync_active_order_panel()
         self._build_buttons()
         self._build_tab_btns()
         if tab == "packs":
@@ -1923,6 +1942,7 @@ class ShopScene(Scene):
         self.selected_object = kind
 
     def on_enter(self) -> None:
+        self._sync_active_order_panel()
         self._build_buttons()
         if self.current_tab == "manage":
             self._refresh_shelves()
