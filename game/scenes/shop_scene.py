@@ -51,9 +51,11 @@ class Customer:
     target: pygame.Vector2
     state: str
     sprite_id: int = 0
-    purchase: tuple[str, str] | None = None
+    purchase: tuple[str, str, int] | None = None
     done: bool = False
     wait_s: float = 0.0
+    comment_text: str = ""
+    comment_s: float = 0.0
 
 
 class ShopScene(Scene):
@@ -2363,7 +2365,45 @@ class ShopScene(Scene):
                 return obj.tile
         return None
 
+
+    def _customer_comment(self, customer: Customer, text: str, secs: float = 2.4) -> None:
+        customer.comment_text = text[:48]
+        customer.comment_s = max(0.6, secs)
+
+    def _maybe_customer_comment(self, customer: Customer, chosen: tuple[str, str, int] | None) -> None:
+        if self.app.rng.random() > 0.35:
+            return
+        lines: list[str] = []
+        if chosen:
+            _, product, price = chosen
+            lines.append(f"I'll take this {product.replace('_', ' ')} (${price}).")
+        posters = [o for o in self.app.state.shop_layout.objects if o.kind == "poster"]
+        if posters:
+            lines.append("Nice poster display.")
+        shelves = [o for o in self.app.state.shop_layout.objects if o.kind == "shelf"]
+        if shelves:
+            lines.append("This shelf setup looks good.")
+        counters = [o for o in self.app.state.shop_layout.objects if o.kind == "counter"]
+        if counters and self.app.rng.random() < 0.4:
+            lines.append("Checkout line looks quick.")
+        featured_cards: list[str] = []
+        for stock in self.app.state.shop_layout.shelf_stocks.values():
+            cards = getattr(stock, "cards", None)
+            if cards:
+                cid = cards[0]
+                if cid in CARD_INDEX:
+                    featured_cards.append(CARD_INDEX[cid].name)
+        if featured_cards and self.app.rng.random() < 0.5:
+            lines.append(f"Whoa, {self.app.rng.choice(featured_cards)} is on display.")
+        if not lines:
+            return
+        self._customer_comment(customer, self.app.rng.choice(lines))
+
     def _move_customer(self, customer: Customer, dt: float) -> None:
+        if customer.comment_s > 0.0:
+            customer.comment_s = max(0.0, customer.comment_s - dt)
+            if customer.comment_s <= 0.0:
+                customer.comment_text = ""
         # Wait (browse/pay) timers.
         if customer.wait_s > 0.0:
             customer.wait_s = max(0.0, customer.wait_s - dt)
@@ -2375,12 +2415,13 @@ class ShopScene(Scene):
             customer.pos += direction.normalize() * speed * dt
             return
         if customer.state == "to_shelf":
-            # Browse a bit before walking to the counter.
-            customer.wait_s = float(self.app.rng.uniform(*CUSTOMER_BROWSE_TIME_RANGE))
+            # Browse longer before walking to the counter.
+            customer.wait_s = float(self.app.rng.uniform(*CUSTOMER_BROWSE_TIME_RANGE)) * 1.6
+            customer.purchase = self._choose_shelf_purchase()
+            self._maybe_customer_comment(customer, customer.purchase)
             counter = self._find_object_tile("counter") or (10, 7)
             customer.target = pygame.Vector2((counter[0] + 0.5) * self.tile_px, (counter[1] + 0.5) * self.tile_px)
             customer.state = "to_counter"
-            customer.purchase = self._choose_shelf_purchase()
         elif customer.state == "to_counter":
             # Pause briefly at counter (pays) before purchase is processed.
             customer.wait_s = float(self.app.rng.uniform(*CUSTOMER_PAY_TIME_RANGE))
@@ -2394,7 +2435,7 @@ class ShopScene(Scene):
         elif customer.state == "exit":
             customer.done = True
 
-    def _choose_shelf_purchase(self) -> tuple[str, str] | None:
+    def _choose_shelf_purchase(self) -> tuple[str, str, int] | None:
         layout = self.app.state.shop_layout
         available: list[tuple[str, str]] = []
         for key, stock in layout.shelf_stocks.items():
@@ -2428,34 +2469,43 @@ class ShopScene(Scene):
         if chosen == "none":
             return None
         candidates = [item for item in available if item[1] == chosen]
-        return self.app.rng.choice(candidates)
-
-    def _process_purchase(self, purchase: tuple[str, str]) -> None:
-        shelf_key, product = purchase
-        prices = self.app.state.prices
-        stock = self.app.state.shop_layout.shelf_stocks.get(shelf_key)
+        shelf_key, product = self.app.rng.choice(candidates)
+        stock = layout.shelf_stocks.get(shelf_key)
         if not stock or stock.qty <= 0:
-            return
+            return None
         mods = self.app.state.skills.modifiers(get_default_skill_tree())
-        price = effective_sale_price(prices, product, mods, self.app.state.pricing)
+        price = effective_sale_price(self.app.state.prices, product, mods, self.app.state.pricing)
         if price is None:
-            return
+            return None
+        # Customer takes product off shelf before checkout.
         if product.startswith("single_") and getattr(stock, "cards", None):
             if stock.cards:
-                sold = self.app.rng.choice(stock.cards)
-                stock.cards.remove(sold)
+                stock.cards.pop(0)
                 stock.qty = len(stock.cards)
             else:
                 stock.qty -= 1
         else:
             stock.qty -= 1
-        became_empty = stock.qty <= 0
         if stock.qty <= 0:
             stock.qty = 0
-            # Keep the last product type so staff can restock it (customers only buy if qty>0 anyway).
             if hasattr(stock, "cards") and getattr(stock, "cards", None) is not None:
-                # If this was a listed-cards shelf and it's now empty, treat it as a bulk singles shelf.
                 stock.cards.clear()
+        notify_shelf_change(self.staff, shelf_key)
+        return (shelf_key, product, int(price))
+
+    def _process_purchase(self, purchase: tuple[str, str] | tuple[str, str, int]) -> None:
+        if len(purchase) == 2:
+            shelf_key, product = purchase
+            mods = self.app.state.skills.modifiers(get_default_skill_tree())
+            computed = effective_sale_price(self.app.state.prices, product, mods, self.app.state.pricing)
+            if computed is None:
+                return
+            price = int(computed)
+        else:
+            shelf_key, product, price = purchase
+            mods = self.app.state.skills.modifiers(get_default_skill_tree())
+        stock = self.app.state.shop_layout.shelf_stocks.get(shelf_key)
+        became_empty = bool(stock and stock.qty <= 0)
         self.app.state.money += price
         self.app.state.last_summary.revenue += price
         self.app.state.last_summary.units_sold += 1
@@ -2477,8 +2527,7 @@ class ShopScene(Scene):
         res = self.app.state.progression.add_xp(xp_from_sale(price, mods))
         if res.gained_levels > 0:
             self.toasts.push(f"Level up! Lv {self.app.state.progression.level} (+{res.gained_skill_points} SP)")
-        # Notify staff so they react immediately to stock being taken off shelves.
-        notify_shelf_change(self.staff, shelf_key)
+
 
     def _buy_fixture(self, kind: str) -> None:
         mods = self.app.state.skills.modifiers(get_default_skill_tree())
@@ -2937,6 +2986,14 @@ class ShopScene(Scene):
             else:
                 rect = pygame.Rect(customer.pos.x - 10 + x_off, customer.pos.y - 10 + y_off, 20, 20)
                 pygame.draw.rect(surface, (200, 200, 120), rect)
+
+            if customer.comment_text:
+                msg = self.theme.render_text(self.theme.font_small, customer.comment_text, self.theme.colors.text)
+                bubble = msg.get_rect(midbottom=(int(customer.pos.x + x_off), int(customer.pos.y - customer_size + y_off - 4)))
+                bg = bubble.inflate(10, 6)
+                pygame.draw.rect(surface, self.theme.colors.panel, bg, border_radius=6)
+                pygame.draw.rect(surface, self.theme.colors.border, bg, 1, border_radius=6)
+                surface.blit(msg, msg.get_rect(center=bg.center))
 
     def _draw_player(self, surface: pygame.Surface) -> None:
         """Draw staff actor + XP bar + level indicator (clipped to shop viewport)."""
