@@ -78,6 +78,8 @@ class ShopScene(Scene):
         self.current_tab = "shop"
         self.tabs = ["shop", "packs", "sell", "deck", "manage", "stats", "skills", "battle"]
         self.tab_buttons: list[Button] = []
+        self.mobile_nav_open = False
+        self._mobile_breakpoint = 980
         self.revealed_cards: list[str] = []
         self.reveal_index = 0
         # Pack opening animation state (Packs tab)
@@ -204,6 +206,13 @@ class ShopScene(Scene):
             state = "PAUSED" if self.cycle_paused else "RUN"
             return [f"Cycle: {self.cycle_phase.upper()} ({state}) | {max(0.0, remain):0.1f}s left"]
         return []
+
+    def _build_day_buttons(self) -> None:
+        """ShopScene owns its own shell controls; suppress legacy global day buttons."""
+        self.day_buttons = []
+
+    def _sync_day_buttons(self) -> None:
+        return
 
     def _last_drag_latency_frames_ok(self) -> bool:
         return self._last_drag_latency_max > 0.0 or self._last_drag_latency_avg > 0.0
@@ -401,6 +410,20 @@ class ShopScene(Scene):
         return None
 
     def _extra_tooltip_text(self, pos: tuple[int, int]) -> str | None:
+        for rect, label, value in self._top_info_rects():
+            if rect.collidepoint(pos):
+                if label == "Money":
+                    return "Current cash on hand. Used for orders, fixtures, and market buys."
+                if label == "Day":
+                    return "Current in-game day. Daily summaries and trends are keyed by this value."
+                if label == "Cycle":
+                    return "Day/Night simulation state. Pause to manage inventory without time pressure."
+                if label == "XP":
+                    return "Shopkeeper progression. Gain XP from sales and battles to unlock skill points."
+                if label == "Staff":
+                    return "Staff auto-restock progression. Levels improve utility over time."
+                return f"{label}: {value}"
+
         if self.current_tab == "shop":
             tile = self._tile_at_pos(pos)
             if tile:
@@ -963,25 +986,51 @@ class ShopScene(Scene):
             self.menu_buttons[2].tooltip = "Return to the main menu (save slots)."
             self.menu_buttons[3].tooltip = "Close this menu."
 
+    def _toggle_mobile_nav(self) -> None:
+        self.mobile_nav_open = not self.mobile_nav_open
+        self._build_tab_btns()
+
     def _build_tab_btns(self) -> None:
         self.tab_buttons = []
-        width, _ = self.app.screen.get_size()
+        width, height = self.app.screen.get_size()
         x0 = 20
-        y0 = 8
         btn_w = 120
         btn_h = 32
         gap = 12
-        # Wrap tabs to multiple rows if needed.
         tab_ids = list(self.tabs) + ["menu"]
-        per_row = max(1, (width - x0 * 2) // (btn_w + gap))
+        mobile = width < self._mobile_breakpoint
+
+        if mobile:
+            nav_w = 156
+            nav_y = height - 44
+            nav_btn = Button(pygame.Rect(x0, nav_y, nav_w, btn_h), "☰ Menus", self._toggle_mobile_nav)
+            nav_btn.tooltip = "Open or close gameplay menus (mobile layout)."
+            self.tab_buttons.append(nav_btn)
+            if not self.mobile_nav_open:
+                return
+            per_row = max(1, (width - x0 * 2) // (btn_w + gap))
+            start_y = height - 44 - (btn_h + 8) * 2
+            for i, tab in enumerate(tab_ids):
+                row = i // per_row
+                col = i % per_row
+                rect = pygame.Rect(x0 + col * (btn_w + gap), start_y + row * (btn_h + 8), btn_w, btn_h)
+                label = "Menu" if tab == "menu" else tab.title()
+                b = Button(rect, label, lambda t=tab: self._switch_tab(t))
+                b.tooltip = f"Open the {label} tab."
+                self.tab_buttons.append(b)
+            return
+
+        self.mobile_nav_open = False
+        total_w = len(tab_ids) * btn_w + max(0, len(tab_ids) - 1) * gap
+        x = max(x0, (width - total_w) // 2)
+        y = height - 44
         for i, tab in enumerate(tab_ids):
-            row = i // per_row
-            col = i % per_row
-            rect = pygame.Rect(x0 + col * (btn_w + gap), y0 + row * (btn_h + 8), btn_w, btn_h)
+            rect = pygame.Rect(x + i * (btn_w + gap), y, btn_w, btn_h)
             label = "Menu" if tab == "menu" else tab.title()
             b = Button(rect, label, lambda t=tab: self._switch_tab(t))
             b.tooltip = f"Open the {label} tab."
             self.tab_buttons.append(b)
+
 
     def _switch_tab(self, tab: str) -> None:
         if tab == "menu":
@@ -2391,6 +2440,7 @@ class ShopScene(Scene):
             self.skills_panel.draw(surface, self.theme)
         if self.current_tab == "stats":
             self.stats_panel.draw(surface, self.theme)
+        self._draw_top_info_bar(surface)
         for button in self.buttons:
             button.draw(surface, self.theme)
         for tb in self.tab_buttons:
@@ -2419,6 +2469,36 @@ class ShopScene(Scene):
             for button in self.menu_buttons:
                 button.draw(surface, self.theme)
         self.draw_overlays(surface)
+
+    def _top_info_items(self) -> list[tuple[str, str]]:
+        phase = "Day" if self.cycle_phase == "day" else "Night"
+        cycle_state = "Paused" if self.cycle_paused else ("Running" if self.cycle_active else "Stopped")
+        return [
+            ("Money", f"${self.app.state.money}"),
+            ("Day", str(self.app.state.day)),
+            ("Cycle", f"{phase} · {cycle_state}"),
+            ("XP", f"Lv {self.app.state.progression.level} · {self.app.state.progression.xp}/{xp_to_next(self.app.state.progression.level)}"),
+            ("Staff", f"Lv {self.staff.level} · XP {self.staff.xp}"),
+        ]
+
+    def _top_info_rects(self) -> list[tuple[pygame.Rect, str, str]]:
+        items = self._top_info_items()
+        rects: list[tuple[pygame.Rect, str, str]] = []
+        x = 20
+        y = 8
+        for label, value in items:
+            w = max(120, min(320, 24 + self.theme.font_small.size(f"{label}: {value}")[0]))
+            rect = pygame.Rect(x, y, w, 30)
+            rects.append((rect, label, value))
+            x += w + 10
+        return rects
+
+    def _draw_top_info_bar(self, surface: pygame.Surface) -> None:
+        for rect, label, value in self._top_info_rects():
+            pygame.draw.rect(surface, self.theme.colors.panel, rect, border_radius=6)
+            pygame.draw.rect(surface, self.theme.colors.border, rect, 1, border_radius=6)
+            text = self.theme.render_text(self.theme.font_small, f"{label}: {value}", self.theme.colors.text)
+            surface.blit(text, (rect.x + 8, rect.y + 7))
 
     def _draw_sell(self, surface: pygame.Surface) -> None:
         """Sell flow UI: items (boosters/decks) or cards (collection)."""
