@@ -1082,27 +1082,37 @@ class ShopScene(Scene):
     def _build_tab_btns(self) -> None:
         self.tab_buttons = []
         width, height = self.app.screen.get_size()
-        x0 = 220
-        btn_w = 120
         btn_h = 32
-        gap = 12
+        gap = 10
         tab_ids = list(self.tabs) + ["menu"]
         mobile = width < self._mobile_breakpoint
 
+        tray_reserved_w = 220  # left-side minimized tray footprint
+
         if mobile:
             nav_w = 156
-            nav_y = height - 44
-            nav_btn = Button(pygame.Rect(x0, nav_y, nav_w, btn_h), "☰ Menus", self._toggle_mobile_nav)
+            nav_x = max(8, width - nav_w - 12)
+            nav_y = max(8, height - 44)
+            nav_btn = Button(pygame.Rect(nav_x, nav_y, nav_w, btn_h), "☰ Menus", self._toggle_mobile_nav)
             nav_btn.tooltip = "Open or close gameplay menus (mobile layout)."
             self.tab_buttons.append(nav_btn)
+
             if not self.mobile_nav_open:
+                self._rebuild_minimized_buttons()
                 return
-            per_row = max(1, (width - x0 * 2) // (btn_w + gap))
-            start_y = height - 44 - (btn_h + 8) * 2
+
+            usable_left = 12
+            usable_right = max(usable_left + 220, width - 12)
+            usable_w = max(220, usable_right - usable_left)
+            per_row = max(1, usable_w // (112 + gap))
+            btn_w = max(96, min(136, (usable_w - gap * (per_row - 1)) // per_row))
+            rows = (len(tab_ids) + per_row - 1) // per_row
+            start_y = max(8, nav_y - rows * (btn_h + 6) - 8)
+
             for i, tab in enumerate(tab_ids):
                 row = i // per_row
                 col = i % per_row
-                rect = pygame.Rect(x0 + col * (btn_w + gap), start_y + row * (btn_h + 8), btn_w, btn_h)
+                rect = pygame.Rect(usable_left + col * (btn_w + gap), start_y + row * (btn_h + 6), btn_w, btn_h)
                 label = "Menu" if tab == "menu" else (tab.title() + (" •" if tab in self.open_tabs else ""))
                 b = Button(rect, label, lambda t=tab: self._switch_tab(t))
                 b.tooltip = f"Open the {label} tab."
@@ -1111,11 +1121,20 @@ class ShopScene(Scene):
             return
 
         self.mobile_nav_open = False
-        total_w = len(tab_ids) * btn_w + max(0, len(tab_ids) - 1) * gap
-        x = max(x0, (width - total_w) // 2)
-        y = height - 44
+        usable_left = min(tray_reserved_w, max(8, width // 4))
+        usable_right = max(usable_left + 220, width - 12)
+        usable_w = max(220, usable_right - usable_left)
+
+        target_btn_w = 120
+        per_row = max(1, usable_w // (target_btn_w + gap))
+        btn_w = max(96, min(132, (usable_w - gap * (per_row - 1)) // per_row))
+        rows = (len(tab_ids) + per_row - 1) // per_row
+        start_y = max(8, height - 44 - (rows - 1) * (btn_h + 6))
+
         for i, tab in enumerate(tab_ids):
-            rect = pygame.Rect(x + i * (btn_w + gap), y, btn_w, btn_h)
+            row = i // per_row
+            col = i % per_row
+            rect = pygame.Rect(usable_left + col * (btn_w + gap), start_y + row * (btn_h + 6), btn_w, btn_h)
             label = "Menu" if tab == "menu" else (tab.title() + (" •" if tab in self.open_tabs else ""))
             b = Button(rect, label, lambda t=tab: self._switch_tab(t))
             b.tooltip = f"Open the {label} tab."
