@@ -60,7 +60,7 @@ class Customer:
     browse_index: int = 0
     cart: list[tuple[str, str, int]] | None = None
     walk_speed_mult: float = 1.0
-    avatar_card_id: str | None = None
+    avatar_card_id: str | None = None  # if set, use this card sprite as the only visual asset
 
 
 class ShopScene(Scene):
@@ -2365,7 +2365,7 @@ class ShopScene(Scene):
         sprite_id = shop_assets.get_random_customer_id(self.app.rng)
         walk_mult = float(self.app.rng.uniform(0.72, 1.02))
 
-        avatar_card_id: str | None = None
+        avatar_card_id: str | None = None  # if set, use this card sprite as the only visual asset
         if self.app.rng.random() < 0.45:
             avatar_card_id = self.app.rng.choice(list(CARD_INDEX.keys()))
 
@@ -3015,27 +3015,28 @@ class ShopScene(Scene):
 
     def _draw_customers(self, surface: pygame.Surface) -> None:
         shop_assets = get_shop_asset_manager()
+        asset_mgr = get_asset_manager()
         customer_size = max(32, min(int(self.tile_px * 0.85), 64))
         y_off = self._shop_y_offset
         x_off = self._shop_x_offset
         for customer in self.customers:
             if customer.done:
                 continue
-            sprite = shop_assets.get_customer_sprite(customer.sprite_id, (customer_size, customer_size))
+
+            # Exactly one visual asset per customer.
+            sprite: pygame.Surface | None = None
+            if customer.avatar_card_id:
+                sprite = asset_mgr.get_card_sprite(customer.avatar_card_id, (customer_size, customer_size))
+            if sprite is None:
+                sprite = shop_assets.get_customer_sprite(customer.sprite_id, (customer_size, customer_size))
+
             if sprite:
                 sprite_x = int(customer.pos.x - customer_size // 2 + x_off)
                 sprite_y = int(customer.pos.y - customer_size + 8 + y_off)
                 surface.blit(sprite, (sprite_x, sprite_y))
             else:
-                rect = pygame.Rect(customer.pos.x - 10 + x_off, customer.pos.y - 10 + y_off, 20, 20)
+                rect = pygame.Rect(customer.pos.x - customer_size // 2 + x_off, customer.pos.y - customer_size + 8 + y_off, customer_size, customer_size)
                 pygame.draw.rect(surface, (200, 200, 120), rect)
-
-            if customer.avatar_card_id:
-                avatar = get_asset_manager().get_card_sprite(customer.avatar_card_id, (18, 18))
-                if avatar:
-                    ax = int(customer.pos.x - 24 + x_off)
-                    ay = int(customer.pos.y - customer_size + y_off - 10)
-                    surface.blit(avatar, (ax, ay))
 
             if customer.comment_text:
                 msg = self.theme.render_text(self.theme.font_small, customer.comment_text, self.theme.colors.text)
