@@ -80,6 +80,11 @@ class ShopScene(Scene):
         self.tab_buttons: list[Button] = []
         self.mobile_nav_open = False
         self._mobile_breakpoint = 980
+        self.open_tabs: set[str] = {"shop"}
+        self.minimized_tabs: list[str] = []
+        self.minimized_tray_open = False
+        self.minimized_toggle_button: Button | None = None
+        self.minimized_buttons: list[Button] = []
         self.revealed_cards: list[str] = []
         self.reveal_index = 0
         # Pack opening animation state (Packs tab)
@@ -163,6 +168,8 @@ class ShopScene(Scene):
         self._drag_latency_frames = 0
         self._last_drag_latency_avg = 0.0
         self._last_drag_latency_max = 0.0
+        self._top_info_cache_key: tuple | None = None
+        self._top_info_cache_rects: list[tuple[pygame.Rect, str, str]] = []
         # Shop window caching during drag/resize (snappy interaction).
         self._shop_drag_snapshot: pygame.Surface | None = None
         self._shop_snapshot_pending = False
@@ -208,11 +215,43 @@ class ShopScene(Scene):
         return []
 
     def _build_day_buttons(self) -> None:
-        """ShopScene owns its own shell controls; suppress legacy global day buttons."""
+        """Place Start/Pause at top-middle of gameplay UI."""
         self.day_buttons = []
+        w, _ = self.app.screen.get_size()
+        btn_w = 140
+        btn_h = 32
+        gap = 8
+        x = (w - (btn_w * 2 + gap)) // 2
+        y = 8
+        start = Button(pygame.Rect(x, y, btn_w, btn_h), "Start", self.start_day)
+        pause = Button(pygame.Rect(x + btn_w + gap, y, btn_w, btn_h), "Pause", self.end_day)
+        start.tooltip = "Start or resume the day/night cycle."
+        pause.tooltip = "Pause the day/night cycle."
+        self.day_buttons = [start, pause]
+        self._sync_day_buttons()
 
     def _sync_day_buttons(self) -> None:
-        return
+        if not self.day_buttons:
+            return
+        start, pause = self.day_buttons
+        active = bool(getattr(self, "cycle_active", False))
+        paused = bool(getattr(self, "cycle_paused", False))
+        if not active:
+            start.text = "Start"
+            start.enabled = True
+            pause.text = "Pause"
+            pause.enabled = False
+            return
+        if paused:
+            start.text = "Resume"
+            start.enabled = True
+            pause.text = "Paused"
+            pause.enabled = False
+            return
+        start.text = "Running"
+        start.enabled = False
+        pause.text = "Pause"
+        pause.enabled = True
 
     def _last_drag_latency_frames_ok(self) -> bool:
         return self._last_drag_latency_max > 0.0 or self._last_drag_latency_avg > 0.0
@@ -378,6 +417,9 @@ class ShopScene(Scene):
         out.extend(self.buttons)
         if self.menu_open:
             out.extend(self.menu_buttons)
+        if self.minimized_toggle_button:
+            out.append(self.minimized_toggle_button)
+        out.extend(self.minimized_buttons)
         return out
 
     def _tooltip_bounds(self, pos: tuple[int, int]) -> pygame.Rect | None:
@@ -986,6 +1028,37 @@ class ShopScene(Scene):
             self.menu_buttons[2].tooltip = "Return to the main menu (save slots)."
             self.menu_buttons[3].tooltip = "Close this menu."
 
+    def _toggle_minimized_tray(self) -> None:
+        self.minimized_tray_open = not self.minimized_tray_open
+        self._rebuild_minimized_buttons()
+
+    def _restore_minimized_tab(self, tab: str) -> None:
+        if tab in self.minimized_tabs:
+            self.minimized_tabs.remove(tab)
+        self.open_tabs.add(tab)
+        self.current_tab = tab
+        self.minimized_tray_open = False
+        self._build_buttons()
+        self._build_tab_btns()
+
+    def _rebuild_minimized_buttons(self) -> None:
+        width, height = self.app.screen.get_size()
+        toggle_label = f"− Minimized ({len(self.minimized_tabs)})" if self.minimized_tray_open else f"+ Minimized ({len(self.minimized_tabs)})"
+        x = 18
+        y = height - 44
+        self.minimized_toggle_button = Button(pygame.Rect(x, y, 190, 32), toggle_label, self._toggle_minimized_tray)
+        self.minimized_toggle_button.tooltip = "Show or hide minimized windows."
+        self.minimized_buttons = []
+        if not self.minimized_tray_open:
+            return
+        by = y - 36
+        for tab in self.minimized_tabs:
+            label = f"Restore {tab.title()}"
+            b = Button(pygame.Rect(x, by, 190, 30), label, lambda t=tab: self._restore_minimized_tab(t))
+            b.tooltip = f"Restore the {tab.title()} window."
+            self.minimized_buttons.append(b)
+            by -= 34
+
     def _toggle_mobile_nav(self) -> None:
         self.mobile_nav_open = not self.mobile_nav_open
         self._build_tab_btns()
@@ -993,7 +1066,7 @@ class ShopScene(Scene):
     def _build_tab_btns(self) -> None:
         self.tab_buttons = []
         width, height = self.app.screen.get_size()
-        x0 = 20
+        x0 = 220
         btn_w = 120
         btn_h = 32
         gap = 12
@@ -1014,10 +1087,11 @@ class ShopScene(Scene):
                 row = i // per_row
                 col = i % per_row
                 rect = pygame.Rect(x0 + col * (btn_w + gap), start_y + row * (btn_h + 8), btn_w, btn_h)
-                label = "Menu" if tab == "menu" else tab.title()
+                label = "Menu" if tab == "menu" else (tab.title() + (" •" if tab in self.open_tabs else ""))
                 b = Button(rect, label, lambda t=tab: self._switch_tab(t))
                 b.tooltip = f"Open the {label} tab."
                 self.tab_buttons.append(b)
+            self._rebuild_minimized_buttons()
             return
 
         self.mobile_nav_open = False
@@ -1026,24 +1100,46 @@ class ShopScene(Scene):
         y = height - 44
         for i, tab in enumerate(tab_ids):
             rect = pygame.Rect(x + i * (btn_w + gap), y, btn_w, btn_h)
-            label = "Menu" if tab == "menu" else tab.title()
+            label = "Menu" if tab == "menu" else (tab.title() + (" •" if tab in self.open_tabs else ""))
             b = Button(rect, label, lambda t=tab: self._switch_tab(t))
             b.tooltip = f"Open the {label} tab."
             self.tab_buttons.append(b)
 
+        self._rebuild_minimized_buttons()
 
     def _switch_tab(self, tab: str) -> None:
         if tab == "menu":
             self.menu_open = not self.menu_open
-            # Close other overlays when the menu is opened.
             if self.menu_open:
                 self.manage_card_book_open = False
             self._build_buttons()
             return
+
+        if tab == "shop":
+            self.open_tabs.add("shop")
+            self.current_tab = "shop"
+            self._build_buttons()
+            return
+
+        if tab in self.open_tabs and tab == self.current_tab:
+            self.open_tabs.remove(tab)
+            if tab not in self.minimized_tabs:
+                self.minimized_tabs.append(tab)
+            self.current_tab = "shop"
+            self.manage_card_book_open = False
+            self._build_buttons()
+            self._build_tab_btns()
+            return
+
+        if tab in self.minimized_tabs:
+            self.minimized_tabs.remove(tab)
+
+        self.open_tabs.add(tab)
         if tab != "manage":
             self.manage_card_book_open = False
         self.current_tab = tab
         self._build_buttons()
+        self._build_tab_btns()
         if tab == "packs":
             self._refresh_pack_list()
         if tab == "manage":
@@ -1833,7 +1929,9 @@ class ShopScene(Scene):
 
     def start_day(self) -> None:
         # Start new cycle, or resume if paused.
-        if not self.cycle_active:
+        active = bool(getattr(self, "cycle_active", False))
+        paused = bool(getattr(self, "cycle_paused", False))
+        if not active:
             self.cycle_active = True
             self.cycle_paused = False
             self.cycle_phase = "day"
@@ -1841,7 +1939,7 @@ class ShopScene(Scene):
             self.day_transition_timer = 0.0
             self._begin_day_phase(reset_summary=True)
             return
-        if self.cycle_paused:
+        if paused:
             self.cycle_paused = False
             return
 
@@ -1934,6 +2032,10 @@ class ShopScene(Scene):
                 return
         for btn in self.tab_buttons:
             btn.handle_event(event)
+        if self.minimized_toggle_button:
+            self.minimized_toggle_button.handle_event(event)
+        for b in self.minimized_buttons:
+            b.handle_event(event)
         if self.current_tab == "packs":
             # Scroll/click only affects the hovered pack list (avoid wheel scrolling other panels).
             if event.type == pygame.MOUSEMOTION:
@@ -2039,6 +2141,10 @@ class ShopScene(Scene):
             self._apply_drag_resize()
         for tb in self.tab_buttons:
             tb.update(dt)
+        if self.minimized_toggle_button:
+            self.minimized_toggle_button.update(dt)
+        for b in self.minimized_buttons:
+            b.update(dt)
         for button in self.buttons:
             button.update(dt)
         if self.cycle_active and not self.cycle_paused:
@@ -2445,6 +2551,10 @@ class ShopScene(Scene):
             button.draw(surface, self.theme)
         for tb in self.tab_buttons:
             tb.draw(surface, self.theme)
+        if self.minimized_toggle_button:
+            self.minimized_toggle_button.draw(surface, self.theme)
+        for b in self.minimized_buttons:
+            b.draw(surface, self.theme)
         if self.current_tab == "packs":
             self._draw_packs(surface)
         if self.current_tab == "manage":
@@ -2482,7 +2592,10 @@ class ShopScene(Scene):
         ]
 
     def _top_info_rects(self) -> list[tuple[pygame.Rect, str, str]]:
-        items = self._top_info_items()
+        items = tuple(self._top_info_items())
+        key = (self.app.screen.get_width(), items)
+        if self._top_info_cache_key == key and self._top_info_cache_rects:
+            return self._top_info_cache_rects
         rects: list[tuple[pygame.Rect, str, str]] = []
         x = 20
         y = 8
@@ -2491,6 +2604,8 @@ class ShopScene(Scene):
             rect = pygame.Rect(x, y, w, 30)
             rects.append((rect, label, value))
             x += w + 10
+        self._top_info_cache_key = key
+        self._top_info_cache_rects = rects
         return rects
 
     def _draw_top_info_bar(self, surface: pygame.Surface) -> None:

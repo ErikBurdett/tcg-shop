@@ -12,11 +12,12 @@ This keeps the shop viewport centered while preserving drag/resize behavior, res
 - Legacy top-left global scene tabs were reduced to only `Shop` and `Menu` for compatibility.
 - Shop shell now suppresses legacy bottom day buttons (scene-level) and owns all controls.
 - Bottom tab strip is now primary navigation on desktop.
+- Re-clicking the active tab minimizes that window to a bottom-left minimized tray for quick restore.
 - Responsive mobile breakpoint adds a hamburger menu (`☰ Menus`) to toggle tab buttons.
 - Added top info chip bar (Money, Day, Cycle, XP, Staff) with hover tooltip details.
 
 ## Layout target (inspired by MMO/strategy UIs)
-- **Top bar**: compact info + hover tooltips.
+- **Top bar**: compact info + hover tooltips, with centered Start/Pause controls.
 - **Center**: fixed focal gameplay viewport (shop).
 - **Right side**: vertical panels (Ordering, Stocking, Inventory, etc.).
 - **Bottom**: horizontal gameplay tabs.
