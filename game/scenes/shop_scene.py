@@ -56,6 +56,11 @@ class Customer:
     wait_s: float = 0.0
     comment_text: str = ""
     comment_s: float = 0.0
+    browse_targets: list[tuple[int, int]] | None = None
+    browse_index: int = 0
+    cart: list[tuple[str, str, int]] | None = None
+    walk_speed_mult: float = 1.0
+    avatar_card_id: str | None = None
 
 
 class ShopScene(Scene):
@@ -2349,12 +2354,33 @@ class ShopScene(Scene):
         shelves = self.app.state.shop_layout.shelf_tiles()
         if not shelves:
             return False
-        shelf = self.app.rng.choice(shelves)
-        target = pygame.Vector2((shelf[0] + 0.5) * self.tile_px, (shelf[1] + 0.5) * self.tile_px)
-        # Assign a random customer sprite
+
+        # Each customer may visit 1-4 shelves (bounded by shelf count).
+        visit_count = max(1, min(len(shelves), self.app.rng.randint(1, 4)))
+        route = list(self.app.rng.sample(shelves, k=visit_count))
+        first = route[0]
+        target = pygame.Vector2((first[0] + 0.5) * self.tile_px, (first[1] + 0.5) * self.tile_px)
+
         shop_assets = get_shop_asset_manager()
         sprite_id = shop_assets.get_random_customer_id(self.app.rng)
-        self.customers.append(Customer(entrance, target, "to_shelf", sprite_id))
+        walk_mult = float(self.app.rng.uniform(0.72, 1.02))
+
+        avatar_card_id: str | None = None
+        if self.app.rng.random() < 0.45:
+            avatar_card_id = self.app.rng.choice(list(CARD_INDEX.keys()))
+
+        self.customers.append(
+            Customer(
+                entrance,
+                target,
+                "to_shelf",
+                sprite_id,
+                browse_targets=route,
+                cart=[],
+                walk_speed_mult=walk_mult,
+                avatar_card_id=avatar_card_id,
+            )
+        )
         self.app.state.last_summary.customers += 1
         self.app.state.analytics.record_visitor(day=int(self.app.state.day), t=float(self.app.state.time_seconds))
         return True
@@ -2399,85 +2425,19 @@ class ShopScene(Scene):
             return
         self._customer_comment(customer, self.app.rng.choice(lines))
 
-    def _move_customer(self, customer: Customer, dt: float) -> None:
-        if customer.comment_s > 0.0:
-            customer.comment_s = max(0.0, customer.comment_s - dt)
-            if customer.comment_s <= 0.0:
-                customer.comment_text = ""
-        # Wait (browse/pay) timers.
-        if customer.wait_s > 0.0:
-            customer.wait_s = max(0.0, customer.wait_s - dt)
-            return
-
-        speed = float(self.tile_px) * float(CUSTOMER_SPEED_TILES_PER_S)
-        direction = customer.target - customer.pos
-        if direction.length() > 1:
-            customer.pos += direction.normalize() * speed * dt
-            return
-        if customer.state == "to_shelf":
-            # Browse longer before walking to the counter.
-            customer.wait_s = float(self.app.rng.uniform(*CUSTOMER_BROWSE_TIME_RANGE)) * 1.6
-            customer.purchase = self._choose_shelf_purchase()
-            self._maybe_customer_comment(customer, customer.purchase)
-            counter = self._find_object_tile("counter") or (10, 7)
-            customer.target = pygame.Vector2((counter[0] + 0.5) * self.tile_px, (counter[1] + 0.5) * self.tile_px)
-            customer.state = "to_counter"
-        elif customer.state == "to_counter":
-            # Pause briefly at counter (pays) before purchase is processed.
-            customer.wait_s = float(self.app.rng.uniform(*CUSTOMER_PAY_TIME_RANGE))
-            customer.state = "paying"
-        elif customer.state == "paying":
-            if customer.purchase:
-                self._process_purchase(customer.purchase)
-            exit_pos = pygame.Vector2(1.5 * self.tile_px, (SHOP_GRID[1] - 0.5) * self.tile_px)
-            customer.target = exit_pos
-            customer.state = "exit"
-        elif customer.state == "exit":
-            customer.done = True
-
-    def _choose_shelf_purchase(self) -> tuple[str, str, int] | None:
+    def _pick_item_from_shelf(self, shelf_tile: tuple[int, int]) -> tuple[str, str, int] | None:
         layout = self.app.state.shop_layout
-        available: list[tuple[str, str]] = []
-        for key, stock in layout.shelf_stocks.items():
-            if stock.qty > 0 and stock.product != "empty":
-                available.append((key, stock.product))
-        if not available:
+        key = layout._key(shelf_tile)
+        stock = layout.shelf_stocks.get(key)
+        if not stock or stock.qty <= 0 or stock.product == "empty":
             return None
-        products = [prod for _, prod in available]
-        # Demand weighting should use the same retail base prices that drive actual sale price,
-        # without mutating the player's stored absolute prices.
-        if self.app.state.pricing.mode == "markup":
-            from game.config import Prices
-            from game.sim.pricing import retail_base_price
 
-            base = self.app.state.prices
-            demand = Prices(**base.__dict__)
-            demand.booster = retail_base_price(base, self.app.state.pricing, "booster") or demand.booster
-            demand.deck = retail_base_price(base, self.app.state.pricing, "deck") or demand.deck
-            demand.single_common = retail_base_price(base, self.app.state.pricing, "single_common") or demand.single_common
-            demand.single_uncommon = (
-                retail_base_price(base, self.app.state.pricing, "single_uncommon") or demand.single_uncommon
-            )
-            demand.single_rare = retail_base_price(base, self.app.state.pricing, "single_rare") or demand.single_rare
-            demand.single_epic = retail_base_price(base, self.app.state.pricing, "single_epic") or demand.single_epic
-            demand.single_legendary = (
-                retail_base_price(base, self.app.state.pricing, "single_legendary") or demand.single_legendary
-            )
-            chosen = choose_purchase(demand, products, self.app.rng)
-        else:
-            chosen = choose_purchase(self.app.state.prices, products, self.app.rng)
-        if chosen == "none":
-            return None
-        candidates = [item for item in available if item[1] == chosen]
-        shelf_key, product = self.app.rng.choice(candidates)
-        stock = layout.shelf_stocks.get(shelf_key)
-        if not stock or stock.qty <= 0:
-            return None
+        product = stock.product
         mods = self.app.state.skills.modifiers(get_default_skill_tree())
         price = effective_sale_price(self.app.state.prices, product, mods, self.app.state.pricing)
         if price is None:
             return None
-        # Customer takes product off shelf before checkout.
+
         if product.startswith("single_") and getattr(stock, "cards", None):
             if stock.cards:
                 stock.cards.pop(0)
@@ -2490,8 +2450,91 @@ class ShopScene(Scene):
             stock.qty = 0
             if hasattr(stock, "cards") and getattr(stock, "cards", None) is not None:
                 stock.cards.clear()
-        notify_shelf_change(self.staff, shelf_key)
-        return (shelf_key, product, int(price))
+        notify_shelf_change(self.staff, key)
+        return (key, product, int(price))
+
+    def _move_customer(self, customer: Customer, dt: float) -> None:
+        if customer.comment_s > 0.0:
+            customer.comment_s = max(0.0, customer.comment_s - dt)
+            if customer.comment_s <= 0.0:
+                customer.comment_text = ""
+
+        if customer.wait_s > 0.0:
+            customer.wait_s = max(0.0, customer.wait_s - dt)
+            return
+
+        speed = float(self.tile_px) * float(CUSTOMER_SPEED_TILES_PER_S) * float(max(0.5, customer.walk_speed_mult))
+        direction = customer.target - customer.pos
+        if direction.length() > 1:
+            customer.pos += direction.normalize() * speed * dt
+            return
+
+        if customer.state == "to_shelf":
+            # Browse and potentially take one or more items from this shelf.
+            customer.wait_s = float(self.app.rng.uniform(*CUSTOMER_BROWSE_TIME_RANGE)) * float(self.app.rng.uniform(1.8, 3.2))
+            route = customer.browse_targets or []
+            idx = min(customer.browse_index, max(0, len(route) - 1))
+            shelf_tile = route[idx] if route else None
+
+            if shelf_tile and customer.cart is not None:
+                take_count = self.app.rng.randint(0, 2)
+                for _ in range(take_count):
+                    picked = self._pick_item_from_shelf(shelf_tile)
+                    if not picked:
+                        break
+                    customer.cart.append(picked)
+                    self._maybe_customer_comment(customer, picked)
+
+            # Chance to comment on decor even without purchasing.
+            if self.app.rng.random() < 0.22:
+                self._maybe_customer_comment(customer, None)
+
+            customer.browse_index += 1
+            if route and customer.browse_index < len(route):
+                nxt = route[customer.browse_index]
+                customer.target = pygame.Vector2((nxt[0] + 0.5) * self.tile_px, (nxt[1] + 0.5) * self.tile_px)
+                customer.state = "to_shelf"
+                return
+
+            # After browsing multiple shelves, head to counter if carrying anything; otherwise leave.
+            has_items = bool(customer.cart)
+            if has_items:
+                counter = self._find_object_tile("counter") or (10, 7)
+                customer.target = pygame.Vector2((counter[0] + 0.5) * self.tile_px, (counter[1] + 0.5) * self.tile_px)
+                customer.state = "to_counter"
+            else:
+                exit_pos = pygame.Vector2(1.5 * self.tile_px, (SHOP_GRID[1] - 0.5) * self.tile_px)
+                customer.target = exit_pos
+                customer.state = "exit"
+
+        elif customer.state == "to_counter":
+            customer.wait_s = float(self.app.rng.uniform(*CUSTOMER_PAY_TIME_RANGE)) * float(self.app.rng.uniform(1.0, 2.1))
+            customer.state = "paying"
+        elif customer.state == "paying":
+            cart = customer.cart or []
+            if cart:
+                for item in cart:
+                    self._process_purchase(item)
+                customer.cart = []
+            elif customer.purchase:
+                self._process_purchase(customer.purchase)
+            exit_pos = pygame.Vector2(1.5 * self.tile_px, (SHOP_GRID[1] - 0.5) * self.tile_px)
+            customer.target = exit_pos
+            customer.state = "exit"
+        elif customer.state == "exit":
+            customer.done = True
+
+    def _choose_shelf_purchase(self) -> tuple[str, str, int] | None:
+        layout = self.app.state.shop_layout
+        available_tiles: list[tuple[int, int]] = []
+        for key, stock in layout.shelf_stocks.items():
+            if stock.qty > 0 and stock.product != "empty":
+                x, y = key.split(",")
+                available_tiles.append((int(x), int(y)))
+        if not available_tiles:
+            return None
+        tile = self.app.rng.choice(available_tiles)
+        return self._pick_item_from_shelf(tile)
 
     def _process_purchase(self, purchase: tuple[str, str] | tuple[str, str, int]) -> None:
         if len(purchase) == 2:
@@ -2986,6 +3029,13 @@ class ShopScene(Scene):
             else:
                 rect = pygame.Rect(customer.pos.x - 10 + x_off, customer.pos.y - 10 + y_off, 20, 20)
                 pygame.draw.rect(surface, (200, 200, 120), rect)
+
+            if customer.avatar_card_id:
+                avatar = get_asset_manager().get_card_sprite(customer.avatar_card_id, (18, 18))
+                if avatar:
+                    ax = int(customer.pos.x - 24 + x_off)
+                    ay = int(customer.pos.y - customer_size + y_off - 10)
+                    surface.blit(avatar, (ax, ay))
 
             if customer.comment_text:
                 msg = self.theme.render_text(self.theme.font_small, customer.comment_text, self.theme.colors.text)
