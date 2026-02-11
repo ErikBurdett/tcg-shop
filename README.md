@@ -112,6 +112,14 @@ python main.py
   - `game/assets/shop/tiles/customer_#.png` (customers)
   - `game/assets/shop/furniture.png` (16x16 furniture sheet)
 
+
+## UI Architecture (Current)
+- **Main Menu scene** handles save slots, new game, and exit.
+- **Unified Gameplay Shell** uses the `shop` scene as a single in-game workspace; all gameplay tabs (Shop/Packs/Sell/Deck/Manage/Stats/Skills/Battle) are opened within that scene.
+- Top information chips provide quick stats with hover tooltips, and Start/Pause controls are centered at the top.
+- Bottom navigation now auto-wraps/adapts button widths on resize and falls back to a mobile-friendly hamburger menu on narrow layouts, so controls stay visible at small window sizes.
+- Re-clicking an open tab minimizes it to a bottom-left minimized tray; minimized tabs can be restored from the tray.
+
 ## Feature Checklist
 ### Implemented
 - [x] Shop grid placement (shelves, counter, poster)

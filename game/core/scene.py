@@ -22,10 +22,6 @@ class Scene:
 
     TABS = [
         Tab("Shop", "shop"),
-        Tab("Manage", "manage"),
-        Tab("Packs", "packs"),
-        Tab("Deck", "deck"),
-        Tab("Battle", "battle"),
         Tab("Menu", "menu"),
     ]
 

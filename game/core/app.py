@@ -174,6 +174,20 @@ class GameApp:
         }
 
     def switch_scene(self, key: str) -> None:
+        gameplay_tabs = {"shop", "packs", "sell", "deck", "manage", "stats", "skills", "battle"}
+        if key in gameplay_tabs:
+            target = "shop"
+            if target not in self.scenes:
+                return
+            if self.current_scene_key and self.current_scene_key != target:
+                self.scenes[self.current_scene_key].on_exit()
+            self.current_scene_key = target
+            self.scenes[self.current_scene_key].on_enter()
+            shop = self.scenes.get(target)
+            if shop and hasattr(shop, "_switch_tab"):
+                shop._switch_tab(key)  # type: ignore[attr-defined]
+            return
+
         if key not in self.scenes:
             return
         if self.current_scene_key:
