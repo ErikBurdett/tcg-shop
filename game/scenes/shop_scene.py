@@ -51,9 +51,16 @@ class Customer:
     target: pygame.Vector2
     state: str
     sprite_id: int = 0
-    purchase: tuple[str, str] | None = None
+    purchase: tuple[str, str, int] | None = None
     done: bool = False
     wait_s: float = 0.0
+    comment_text: str = ""
+    comment_s: float = 0.0
+    browse_targets: list[tuple[int, int]] | None = None
+    browse_index: int = 0
+    cart: list[tuple[str, str, int]] | None = None
+    walk_speed_mult: float = 1.0
+    avatar_card_id: str | None = None  # if set, use this card sprite as the only visual asset
 
 
 class ShopScene(Scene):
@@ -77,7 +84,15 @@ class ShopScene(Scene):
         self.selected_object = "shelf"
         self.current_tab = "shop"
         self.tabs = ["shop", "packs", "sell", "deck", "manage", "stats", "skills", "battle"]
+        self.order_tabs = ["shop", "packs", "sell", "deck", "manage", "battle"]
         self.tab_buttons: list[Button] = []
+        self.mobile_nav_open = False
+        self._mobile_breakpoint = 980
+        self.open_tabs: set[str] = {"shop"}
+        self.minimized_tabs: list[str] = []
+        self.minimized_tray_open = False
+        self.minimized_toggle_button: Button | None = None
+        self.minimized_buttons: list[Button] = []
         self.revealed_cards: list[str] = []
         self.reveal_index = 0
         # Pack opening animation state (Packs tab)
@@ -119,6 +134,7 @@ class ShopScene(Scene):
         self._last_screen_size = self.app.screen.get_size()
         self.shop_panel = Panel(pygame.Rect(0, 0, 640, 520), "Shop")
         self.order_panel = Panel(pygame.Rect(0, 0, 280, 240), "Ordering")
+        self.order_panels: dict[str, Panel] = {tab: Panel(self.order_panel.rect.copy(), f"{tab.title()} Ordering") for tab in self.order_tabs}
         self.stock_panel = Panel(pygame.Rect(0, 0, 280, 280), "Stocking")
         self.inventory_panel = Panel(pygame.Rect(0, 0, 280, 240), "Inventory")
         self.book_panel = Panel(pygame.Rect(0, 0, 540, 520), "Card Book")
@@ -161,6 +177,8 @@ class ShopScene(Scene):
         self._drag_latency_frames = 0
         self._last_drag_latency_avg = 0.0
         self._last_drag_latency_max = 0.0
+        self._top_info_cache_key: tuple | None = None
+        self._top_info_cache_rects: list[tuple[pygame.Rect, str, str]] = []
         # Shop window caching during drag/resize (snappy interaction).
         self._shop_drag_snapshot: pygame.Surface | None = None
         self._shop_snapshot_pending = False
@@ -191,6 +209,9 @@ class ShopScene(Scene):
         self._build_buttons()
         self._init_assets()
 
+    def _sync_active_order_panel(self) -> None:
+        self.order_panel = self.order_panels.get(self.current_tab, self.order_panels.get("shop", self.order_panel))
+
     def debug_lines(self) -> list[str]:
         if self._drag_target:
             avg = (self._drag_latency_sum / self._drag_latency_frames) if self._drag_latency_frames else 0.0
@@ -204,6 +225,45 @@ class ShopScene(Scene):
             state = "PAUSED" if self.cycle_paused else "RUN"
             return [f"Cycle: {self.cycle_phase.upper()} ({state}) | {max(0.0, remain):0.1f}s left"]
         return []
+
+    def _build_day_buttons(self) -> None:
+        """Place Start/Pause at top-middle of gameplay UI."""
+        self.day_buttons = []
+        w, _ = self.app.screen.get_size()
+        btn_w = 140
+        btn_h = 32
+        gap = 8
+        x = (w - (btn_w * 2 + gap)) // 2
+        y = 8
+        start = Button(pygame.Rect(x, y, btn_w, btn_h), "Start", self.start_day)
+        pause = Button(pygame.Rect(x + btn_w + gap, y, btn_w, btn_h), "Pause", self.end_day)
+        start.tooltip = "Start or resume the day/night cycle."
+        pause.tooltip = "Pause the day/night cycle."
+        self.day_buttons = [start, pause]
+        self._sync_day_buttons()
+
+    def _sync_day_buttons(self) -> None:
+        if not self.day_buttons:
+            return
+        start, pause = self.day_buttons
+        active = bool(getattr(self, "cycle_active", False))
+        paused = bool(getattr(self, "cycle_paused", False))
+        if not active:
+            start.text = "Start"
+            start.enabled = True
+            pause.text = "Pause"
+            pause.enabled = False
+            return
+        if paused:
+            start.text = "Resume"
+            start.enabled = True
+            pause.text = "Paused"
+            pause.enabled = False
+            return
+        start.text = "Running"
+        start.enabled = False
+        pause.text = "Pause"
+        pause.enabled = True
 
     def _last_drag_latency_frames_ok(self) -> bool:
         return self._last_drag_latency_max > 0.0 or self._last_drag_latency_avg > 0.0
@@ -302,7 +362,8 @@ class ShopScene(Scene):
                 max(520, int(height * 0.62)),
             )
         else:
-            order_rect = self._clamp_rect(self.order_panel.rect.copy(), width, height)
+            active_order = self.order_panels.get(self.current_tab, self.order_panel)
+            order_rect = self._clamp_rect(active_order.rect.copy(), width, height)
             stock_rect = self._clamp_rect(self.stock_panel.rect.copy(), width, height)
             inv_rect = self._clamp_rect(self.inventory_panel.rect.copy(), width, height)
             list_rect = self.shelf_list.rect.copy()
@@ -312,7 +373,16 @@ class ShopScene(Scene):
             shop_rect = self._clamp_rect(self.shop_panel.rect.copy(), width, height)
             skills_rect = self._clamp_rect(self.skills_panel.rect.copy(), width, height)
             stats_rect = self._clamp_rect(self.stats_panel.rect.copy(), width, height)
-        self.order_panel = Panel(order_rect, "Ordering")
+        if not self._layout_initialized:
+            self.order_panels = {tab: Panel(order_rect.copy(), f"{tab.title()} Ordering") for tab in self.order_tabs}
+        else:
+            updated: dict[str, Panel] = {}
+            for tab in self.order_tabs:
+                prev = self.order_panels.get(tab, self.order_panel)
+                rect = self._clamp_rect(prev.rect.copy(), width, height)
+                updated[tab] = Panel(rect, f"{tab.title()} Ordering")
+            self.order_panels = updated
+        self._sync_active_order_panel()
         self.stock_panel = Panel(stock_rect, "Stocking")
         self.inventory_panel = Panel(inv_rect, "Inventory")
         self.book_panel = Panel(book_rect, "Card Book")
@@ -369,6 +439,9 @@ class ShopScene(Scene):
         out.extend(self.buttons)
         if self.menu_open:
             out.extend(self.menu_buttons)
+        if self.minimized_toggle_button:
+            out.append(self.minimized_toggle_button)
+        out.extend(self.minimized_buttons)
         return out
 
     def _tooltip_bounds(self, pos: tuple[int, int]) -> pygame.Rect | None:
@@ -401,6 +474,20 @@ class ShopScene(Scene):
         return None
 
     def _extra_tooltip_text(self, pos: tuple[int, int]) -> str | None:
+        for rect, label, value in self._top_info_rects():
+            if rect.collidepoint(pos):
+                if label == "Money":
+                    return "Current cash on hand. Used for orders, fixtures, and market buys."
+                if label == "Day":
+                    return "Current in-game day. Daily summaries and trends are keyed by this value."
+                if label == "Cycle":
+                    return "Day/Night simulation state. Pause to manage inventory without time pressure."
+                if label == "XP":
+                    return "Shopkeeper progression. Gain XP from sales and battles to unlock skill points."
+                if label == "Staff":
+                    return "Staff auto-restock progression. Levels improve utility over time."
+                return f"{label}: {value}"
+
         if self.current_tab == "shop":
             tile = self._tile_at_pos(pos)
             if tile:
@@ -963,38 +1050,141 @@ class ShopScene(Scene):
             self.menu_buttons[2].tooltip = "Return to the main menu (save slots)."
             self.menu_buttons[3].tooltip = "Close this menu."
 
+    def _toggle_minimized_tray(self) -> None:
+        self.minimized_tray_open = not self.minimized_tray_open
+        self._rebuild_minimized_buttons()
+
+    def _restore_minimized_tab(self, tab: str) -> None:
+        if tab in self.minimized_tabs:
+            self.minimized_tabs.remove(tab)
+        self.open_tabs.add(tab)
+        self.current_tab = tab
+        self._sync_active_order_panel()
+        self.minimized_tray_open = False
+        self._build_buttons()
+        self._build_tab_btns()
+
+    def _rebuild_minimized_buttons(self) -> None:
+        width, height = self.app.screen.get_size()
+        toggle_label = f"− Minimized ({len(self.minimized_tabs)})" if self.minimized_tray_open else f"+ Minimized ({len(self.minimized_tabs)})"
+        x = 18
+        y = height - 44
+        self.minimized_toggle_button = Button(pygame.Rect(x, y, 190, 32), toggle_label, self._toggle_minimized_tray)
+        self.minimized_toggle_button.tooltip = "Show or hide minimized windows."
+        self.minimized_buttons = []
+        if not self.minimized_tray_open:
+            return
+        by = y - 36
+        for tab in self.minimized_tabs:
+            label = f"Restore {tab.title()}"
+            b = Button(pygame.Rect(x, by, 190, 30), label, lambda t=tab: self._restore_minimized_tab(t))
+            b.tooltip = f"Restore the {tab.title()} window."
+            self.minimized_buttons.append(b)
+            by -= 34
+
+    def _toggle_mobile_nav(self) -> None:
+        self.mobile_nav_open = not self.mobile_nav_open
+        self._build_tab_btns()
+
     def _build_tab_btns(self) -> None:
         self.tab_buttons = []
-        width, _ = self.app.screen.get_size()
-        x0 = 20
-        y0 = 8
-        btn_w = 120
+        width, height = self.app.screen.get_size()
         btn_h = 32
-        gap = 12
-        # Wrap tabs to multiple rows if needed.
+        gap = 10
         tab_ids = list(self.tabs) + ["menu"]
-        per_row = max(1, (width - x0 * 2) // (btn_w + gap))
+        mobile = width < self._mobile_breakpoint
+
+        tray_reserved_w = 220  # left-side minimized tray footprint
+
+        if mobile:
+            nav_w = 156
+            nav_x = max(8, width - nav_w - 12)
+            nav_y = max(8, height - 44)
+            nav_btn = Button(pygame.Rect(nav_x, nav_y, nav_w, btn_h), "☰ Menus", self._toggle_mobile_nav)
+            nav_btn.tooltip = "Open or close gameplay menus (mobile layout)."
+            self.tab_buttons.append(nav_btn)
+
+            if not self.mobile_nav_open:
+                self._rebuild_minimized_buttons()
+                return
+
+            usable_left = 12
+            usable_right = max(usable_left + 220, width - 12)
+            usable_w = max(220, usable_right - usable_left)
+            per_row = max(1, usable_w // (112 + gap))
+            btn_w = max(96, min(136, (usable_w - gap * (per_row - 1)) // per_row))
+            rows = (len(tab_ids) + per_row - 1) // per_row
+            start_y = max(8, nav_y - rows * (btn_h + 6) - 8)
+
+            for i, tab in enumerate(tab_ids):
+                row = i // per_row
+                col = i % per_row
+                rect = pygame.Rect(usable_left + col * (btn_w + gap), start_y + row * (btn_h + 6), btn_w, btn_h)
+                label = "Menu" if tab == "menu" else (tab.title() + (" •" if tab in self.open_tabs else ""))
+                b = Button(rect, label, lambda t=tab: self._switch_tab(t))
+                b.tooltip = f"Open the {label} tab."
+                self.tab_buttons.append(b)
+            self._rebuild_minimized_buttons()
+            return
+
+        self.mobile_nav_open = False
+        usable_left = min(tray_reserved_w, max(8, width // 4))
+        usable_right = max(usable_left + 220, width - 12)
+        usable_w = max(220, usable_right - usable_left)
+
+        target_btn_w = 120
+        per_row = max(1, usable_w // (target_btn_w + gap))
+        btn_w = max(96, min(132, (usable_w - gap * (per_row - 1)) // per_row))
+        rows = (len(tab_ids) + per_row - 1) // per_row
+        start_y = max(8, height - 44 - (rows - 1) * (btn_h + 6))
+
         for i, tab in enumerate(tab_ids):
             row = i // per_row
             col = i % per_row
-            rect = pygame.Rect(x0 + col * (btn_w + gap), y0 + row * (btn_h + 8), btn_w, btn_h)
-            label = "Menu" if tab == "menu" else tab.title()
+            rect = pygame.Rect(usable_left + col * (btn_w + gap), start_y + row * (btn_h + 6), btn_w, btn_h)
+            label = "Menu" if tab == "menu" else (tab.title() + (" •" if tab in self.open_tabs else ""))
             b = Button(rect, label, lambda t=tab: self._switch_tab(t))
             b.tooltip = f"Open the {label} tab."
             self.tab_buttons.append(b)
 
+        self._rebuild_minimized_buttons()
+
     def _switch_tab(self, tab: str) -> None:
         if tab == "menu":
             self.menu_open = not self.menu_open
-            # Close other overlays when the menu is opened.
             if self.menu_open:
                 self.manage_card_book_open = False
             self._build_buttons()
             return
+
+        if tab == "shop":
+            self.open_tabs.add("shop")
+            self.current_tab = "shop"
+            self._sync_active_order_panel()
+            self._build_buttons()
+            return
+
+        if tab in self.open_tabs and tab == self.current_tab:
+            self.open_tabs.remove(tab)
+            if tab not in self.minimized_tabs:
+                self.minimized_tabs.append(tab)
+            self.current_tab = "shop"
+            self._sync_active_order_panel()
+            self.manage_card_book_open = False
+            self._build_buttons()
+            self._build_tab_btns()
+            return
+
+        if tab in self.minimized_tabs:
+            self.minimized_tabs.remove(tab)
+
+        self.open_tabs.add(tab)
         if tab != "manage":
             self.manage_card_book_open = False
         self.current_tab = tab
+        self._sync_active_order_panel()
         self._build_buttons()
+        self._build_tab_btns()
         if tab == "packs":
             self._refresh_pack_list()
         if tab == "manage":
@@ -1778,13 +1968,16 @@ class ShopScene(Scene):
         self.selected_object = kind
 
     def on_enter(self) -> None:
+        self._sync_active_order_panel()
         self._build_buttons()
         if self.current_tab == "manage":
             self._refresh_shelves()
 
     def start_day(self) -> None:
         # Start new cycle, or resume if paused.
-        if not self.cycle_active:
+        active = bool(getattr(self, "cycle_active", False))
+        paused = bool(getattr(self, "cycle_paused", False))
+        if not active:
             self.cycle_active = True
             self.cycle_paused = False
             self.cycle_phase = "day"
@@ -1792,7 +1985,7 @@ class ShopScene(Scene):
             self.day_transition_timer = 0.0
             self._begin_day_phase(reset_summary=True)
             return
-        if self.cycle_paused:
+        if paused:
             self.cycle_paused = False
             return
 
@@ -1885,6 +2078,10 @@ class ShopScene(Scene):
                 return
         for btn in self.tab_buttons:
             btn.handle_event(event)
+        if self.minimized_toggle_button:
+            self.minimized_toggle_button.handle_event(event)
+        for b in self.minimized_buttons:
+            b.handle_event(event)
         if self.current_tab == "packs":
             # Scroll/click only affects the hovered pack list (avoid wheel scrolling other panels).
             if event.type == pygame.MOUSEMOTION:
@@ -1990,6 +2187,10 @@ class ShopScene(Scene):
             self._apply_drag_resize()
         for tb in self.tab_buttons:
             tb.update(dt)
+        if self.minimized_toggle_button:
+            self.minimized_toggle_button.update(dt)
+        for b in self.minimized_buttons:
+            b.update(dt)
         for button in self.buttons:
             button.update(dt)
         if self.cycle_active and not self.cycle_paused:
@@ -2153,12 +2354,33 @@ class ShopScene(Scene):
         shelves = self.app.state.shop_layout.shelf_tiles()
         if not shelves:
             return False
-        shelf = self.app.rng.choice(shelves)
-        target = pygame.Vector2((shelf[0] + 0.5) * self.tile_px, (shelf[1] + 0.5) * self.tile_px)
-        # Assign a random customer sprite
+
+        # Each customer may visit 1-4 shelves (bounded by shelf count).
+        visit_count = max(1, min(len(shelves), self.app.rng.randint(1, 4)))
+        route = list(self.app.rng.sample(shelves, k=visit_count))
+        first = route[0]
+        target = pygame.Vector2((first[0] + 0.5) * self.tile_px, (first[1] + 0.5) * self.tile_px)
+
         shop_assets = get_shop_asset_manager()
         sprite_id = shop_assets.get_random_customer_id(self.app.rng)
-        self.customers.append(Customer(entrance, target, "to_shelf", sprite_id))
+        walk_mult = float(self.app.rng.uniform(0.72, 1.02))
+
+        avatar_card_id: str | None = None  # if set, use this card sprite as the only visual asset
+        if self.app.rng.random() < 0.45:
+            avatar_card_id = self.app.rng.choice(list(CARD_INDEX.keys()))
+
+        self.customers.append(
+            Customer(
+                entrance,
+                target,
+                "to_shelf",
+                sprite_id,
+                browse_targets=route,
+                cart=[],
+                walk_speed_mult=walk_mult,
+                avatar_card_id=avatar_card_id,
+            )
+        )
         self.app.state.last_summary.customers += 1
         self.app.state.analytics.record_visitor(day=int(self.app.state.day), t=float(self.app.state.time_seconds))
         return True
@@ -2169,30 +2391,132 @@ class ShopScene(Scene):
                 return obj.tile
         return None
 
+
+    def _customer_comment(self, customer: Customer, text: str, secs: float = 2.4) -> None:
+        customer.comment_text = text[:48]
+        customer.comment_s = max(0.6, secs)
+
+    def _maybe_customer_comment(self, customer: Customer, chosen: tuple[str, str, int] | None) -> None:
+        if self.app.rng.random() > 0.35:
+            return
+        lines: list[str] = []
+        if chosen:
+            _, product, price = chosen
+            lines.append(f"I'll take this {product.replace('_', ' ')} (${price}).")
+        posters = [o for o in self.app.state.shop_layout.objects if o.kind == "poster"]
+        if posters:
+            lines.append("Nice poster display.")
+        shelves = [o for o in self.app.state.shop_layout.objects if o.kind == "shelf"]
+        if shelves:
+            lines.append("This shelf setup looks good.")
+        counters = [o for o in self.app.state.shop_layout.objects if o.kind == "counter"]
+        if counters and self.app.rng.random() < 0.4:
+            lines.append("Checkout line looks quick.")
+        featured_cards: list[str] = []
+        for stock in self.app.state.shop_layout.shelf_stocks.values():
+            cards = getattr(stock, "cards", None)
+            if cards:
+                cid = cards[0]
+                if cid in CARD_INDEX:
+                    featured_cards.append(CARD_INDEX[cid].name)
+        if featured_cards and self.app.rng.random() < 0.5:
+            lines.append(f"Whoa, {self.app.rng.choice(featured_cards)} is on display.")
+        if not lines:
+            return
+        self._customer_comment(customer, self.app.rng.choice(lines))
+
+    def _pick_item_from_shelf(self, shelf_tile: tuple[int, int]) -> tuple[str, str, int] | None:
+        layout = self.app.state.shop_layout
+        key = layout._key(shelf_tile)
+        stock = layout.shelf_stocks.get(key)
+        if not stock or stock.qty <= 0 or stock.product == "empty":
+            return None
+
+        product = stock.product
+        mods = self.app.state.skills.modifiers(get_default_skill_tree())
+        price = effective_sale_price(self.app.state.prices, product, mods, self.app.state.pricing)
+        if price is None:
+            return None
+
+        if product.startswith("single_") and getattr(stock, "cards", None):
+            if stock.cards:
+                stock.cards.pop(0)
+                stock.qty = len(stock.cards)
+            else:
+                stock.qty -= 1
+        else:
+            stock.qty -= 1
+        if stock.qty <= 0:
+            stock.qty = 0
+            if hasattr(stock, "cards") and getattr(stock, "cards", None) is not None:
+                stock.cards.clear()
+        notify_shelf_change(self.staff, key)
+        return (key, product, int(price))
+
     def _move_customer(self, customer: Customer, dt: float) -> None:
-        # Wait (browse/pay) timers.
+        if customer.comment_s > 0.0:
+            customer.comment_s = max(0.0, customer.comment_s - dt)
+            if customer.comment_s <= 0.0:
+                customer.comment_text = ""
+
         if customer.wait_s > 0.0:
             customer.wait_s = max(0.0, customer.wait_s - dt)
             return
 
-        speed = float(self.tile_px) * float(CUSTOMER_SPEED_TILES_PER_S)
+        speed = float(self.tile_px) * float(CUSTOMER_SPEED_TILES_PER_S) * float(max(0.5, customer.walk_speed_mult))
         direction = customer.target - customer.pos
         if direction.length() > 1:
             customer.pos += direction.normalize() * speed * dt
             return
+
         if customer.state == "to_shelf":
-            # Browse a bit before walking to the counter.
-            customer.wait_s = float(self.app.rng.uniform(*CUSTOMER_BROWSE_TIME_RANGE))
-            counter = self._find_object_tile("counter") or (10, 7)
-            customer.target = pygame.Vector2((counter[0] + 0.5) * self.tile_px, (counter[1] + 0.5) * self.tile_px)
-            customer.state = "to_counter"
-            customer.purchase = self._choose_shelf_purchase()
+            # Browse and potentially take one or more items from this shelf.
+            customer.wait_s = float(self.app.rng.uniform(*CUSTOMER_BROWSE_TIME_RANGE)) * float(self.app.rng.uniform(1.8, 3.2))
+            route = customer.browse_targets or []
+            idx = min(customer.browse_index, max(0, len(route) - 1))
+            shelf_tile = route[idx] if route else None
+
+            if shelf_tile and customer.cart is not None:
+                take_count = self.app.rng.randint(0, 2)
+                for _ in range(take_count):
+                    picked = self._pick_item_from_shelf(shelf_tile)
+                    if not picked:
+                        break
+                    customer.cart.append(picked)
+                    self._maybe_customer_comment(customer, picked)
+
+            # Chance to comment on decor even without purchasing.
+            if self.app.rng.random() < 0.22:
+                self._maybe_customer_comment(customer, None)
+
+            customer.browse_index += 1
+            if route and customer.browse_index < len(route):
+                nxt = route[customer.browse_index]
+                customer.target = pygame.Vector2((nxt[0] + 0.5) * self.tile_px, (nxt[1] + 0.5) * self.tile_px)
+                customer.state = "to_shelf"
+                return
+
+            # After browsing multiple shelves, head to counter if carrying anything; otherwise leave.
+            has_items = bool(customer.cart)
+            if has_items:
+                counter = self._find_object_tile("counter") or (10, 7)
+                customer.target = pygame.Vector2((counter[0] + 0.5) * self.tile_px, (counter[1] + 0.5) * self.tile_px)
+                customer.state = "to_counter"
+            else:
+                exit_pos = pygame.Vector2(1.5 * self.tile_px, (SHOP_GRID[1] - 0.5) * self.tile_px)
+                customer.target = exit_pos
+                customer.state = "exit"
+
         elif customer.state == "to_counter":
-            # Pause briefly at counter (pays) before purchase is processed.
-            customer.wait_s = float(self.app.rng.uniform(*CUSTOMER_PAY_TIME_RANGE))
+            customer.wait_s = float(self.app.rng.uniform(*CUSTOMER_PAY_TIME_RANGE)) * float(self.app.rng.uniform(1.0, 2.1))
             customer.state = "paying"
         elif customer.state == "paying":
-            if customer.purchase:
+            cart = customer.cart or []
+            if cart:
+                for item in cart:
+                    self._process_purchase(item)
+                customer.cart = []
+            elif customer.purchase:
                 self._process_purchase(customer.purchase)
             exit_pos = pygame.Vector2(1.5 * self.tile_px, (SHOP_GRID[1] - 0.5) * self.tile_px)
             customer.target = exit_pos
@@ -2200,68 +2524,31 @@ class ShopScene(Scene):
         elif customer.state == "exit":
             customer.done = True
 
-    def _choose_shelf_purchase(self) -> tuple[str, str] | None:
+    def _choose_shelf_purchase(self) -> tuple[str, str, int] | None:
         layout = self.app.state.shop_layout
-        available: list[tuple[str, str]] = []
+        available_tiles: list[tuple[int, int]] = []
         for key, stock in layout.shelf_stocks.items():
             if stock.qty > 0 and stock.product != "empty":
-                available.append((key, stock.product))
-        if not available:
+                x, y = key.split(",")
+                available_tiles.append((int(x), int(y)))
+        if not available_tiles:
             return None
-        products = [prod for _, prod in available]
-        # Demand weighting should use the same retail base prices that drive actual sale price,
-        # without mutating the player's stored absolute prices.
-        if self.app.state.pricing.mode == "markup":
-            from game.config import Prices
-            from game.sim.pricing import retail_base_price
+        tile = self.app.rng.choice(available_tiles)
+        return self._pick_item_from_shelf(tile)
 
-            base = self.app.state.prices
-            demand = Prices(**base.__dict__)
-            demand.booster = retail_base_price(base, self.app.state.pricing, "booster") or demand.booster
-            demand.deck = retail_base_price(base, self.app.state.pricing, "deck") or demand.deck
-            demand.single_common = retail_base_price(base, self.app.state.pricing, "single_common") or demand.single_common
-            demand.single_uncommon = (
-                retail_base_price(base, self.app.state.pricing, "single_uncommon") or demand.single_uncommon
-            )
-            demand.single_rare = retail_base_price(base, self.app.state.pricing, "single_rare") or demand.single_rare
-            demand.single_epic = retail_base_price(base, self.app.state.pricing, "single_epic") or demand.single_epic
-            demand.single_legendary = (
-                retail_base_price(base, self.app.state.pricing, "single_legendary") or demand.single_legendary
-            )
-            chosen = choose_purchase(demand, products, self.app.rng)
+    def _process_purchase(self, purchase: tuple[str, str] | tuple[str, str, int]) -> None:
+        if len(purchase) == 2:
+            shelf_key, product = purchase
+            mods = self.app.state.skills.modifiers(get_default_skill_tree())
+            computed = effective_sale_price(self.app.state.prices, product, mods, self.app.state.pricing)
+            if computed is None:
+                return
+            price = int(computed)
         else:
-            chosen = choose_purchase(self.app.state.prices, products, self.app.rng)
-        if chosen == "none":
-            return None
-        candidates = [item for item in available if item[1] == chosen]
-        return self.app.rng.choice(candidates)
-
-    def _process_purchase(self, purchase: tuple[str, str]) -> None:
-        shelf_key, product = purchase
-        prices = self.app.state.prices
+            shelf_key, product, price = purchase
+            mods = self.app.state.skills.modifiers(get_default_skill_tree())
         stock = self.app.state.shop_layout.shelf_stocks.get(shelf_key)
-        if not stock or stock.qty <= 0:
-            return
-        mods = self.app.state.skills.modifiers(get_default_skill_tree())
-        price = effective_sale_price(prices, product, mods, self.app.state.pricing)
-        if price is None:
-            return
-        if product.startswith("single_") and getattr(stock, "cards", None):
-            if stock.cards:
-                sold = self.app.rng.choice(stock.cards)
-                stock.cards.remove(sold)
-                stock.qty = len(stock.cards)
-            else:
-                stock.qty -= 1
-        else:
-            stock.qty -= 1
-        became_empty = stock.qty <= 0
-        if stock.qty <= 0:
-            stock.qty = 0
-            # Keep the last product type so staff can restock it (customers only buy if qty>0 anyway).
-            if hasattr(stock, "cards") and getattr(stock, "cards", None) is not None:
-                # If this was a listed-cards shelf and it's now empty, treat it as a bulk singles shelf.
-                stock.cards.clear()
+        became_empty = bool(stock and stock.qty <= 0)
         self.app.state.money += price
         self.app.state.last_summary.revenue += price
         self.app.state.last_summary.units_sold += 1
@@ -2283,8 +2570,7 @@ class ShopScene(Scene):
         res = self.app.state.progression.add_xp(xp_from_sale(price, mods))
         if res.gained_levels > 0:
             self.toasts.push(f"Level up! Lv {self.app.state.progression.level} (+{res.gained_skill_points} SP)")
-        # Notify staff so they react immediately to stock being taken off shelves.
-        notify_shelf_change(self.staff, shelf_key)
+
 
     def _buy_fixture(self, kind: str) -> None:
         mods = self.app.state.skills.modifiers(get_default_skill_tree())
@@ -2391,10 +2677,15 @@ class ShopScene(Scene):
             self.skills_panel.draw(surface, self.theme)
         if self.current_tab == "stats":
             self.stats_panel.draw(surface, self.theme)
+        self._draw_top_info_bar(surface)
         for button in self.buttons:
             button.draw(surface, self.theme)
         for tb in self.tab_buttons:
             tb.draw(surface, self.theme)
+        if self.minimized_toggle_button:
+            self.minimized_toggle_button.draw(surface, self.theme)
+        for b in self.minimized_buttons:
+            b.draw(surface, self.theme)
         if self.current_tab == "packs":
             self._draw_packs(surface)
         if self.current_tab == "manage":
@@ -2419,6 +2710,41 @@ class ShopScene(Scene):
             for button in self.menu_buttons:
                 button.draw(surface, self.theme)
         self.draw_overlays(surface)
+
+    def _top_info_items(self) -> list[tuple[str, str]]:
+        phase = "Day" if self.cycle_phase == "day" else "Night"
+        cycle_state = "Paused" if self.cycle_paused else ("Running" if self.cycle_active else "Stopped")
+        return [
+            ("Money", f"${self.app.state.money}"),
+            ("Day", str(self.app.state.day)),
+            ("Cycle", f"{phase} · {cycle_state}"),
+            ("XP", f"Lv {self.app.state.progression.level} · {self.app.state.progression.xp}/{xp_to_next(self.app.state.progression.level)}"),
+            ("Staff", f"Lv {self.staff.level} · XP {self.staff.xp}"),
+        ]
+
+    def _top_info_rects(self) -> list[tuple[pygame.Rect, str, str]]:
+        items = tuple(self._top_info_items())
+        key = (self.app.screen.get_width(), items)
+        if self._top_info_cache_key == key and self._top_info_cache_rects:
+            return self._top_info_cache_rects
+        rects: list[tuple[pygame.Rect, str, str]] = []
+        x = 20
+        y = 8
+        for label, value in items:
+            w = max(120, min(320, 24 + self.theme.font_small.size(f"{label}: {value}")[0]))
+            rect = pygame.Rect(x, y, w, 30)
+            rects.append((rect, label, value))
+            x += w + 10
+        self._top_info_cache_key = key
+        self._top_info_cache_rects = rects
+        return rects
+
+    def _draw_top_info_bar(self, surface: pygame.Surface) -> None:
+        for rect, label, value in self._top_info_rects():
+            pygame.draw.rect(surface, self.theme.colors.panel, rect, border_radius=6)
+            pygame.draw.rect(surface, self.theme.colors.border, rect, 1, border_radius=6)
+            text = self.theme.render_text(self.theme.font_small, f"{label}: {value}", self.theme.colors.text)
+            surface.blit(text, (rect.x + 8, rect.y + 7))
 
     def _draw_sell(self, surface: pygame.Surface) -> None:
         """Sell flow UI: items (boosters/decks) or cards (collection)."""
@@ -2689,20 +3015,36 @@ class ShopScene(Scene):
 
     def _draw_customers(self, surface: pygame.Surface) -> None:
         shop_assets = get_shop_asset_manager()
+        asset_mgr = get_asset_manager()
         customer_size = max(32, min(int(self.tile_px * 0.85), 64))
         y_off = self._shop_y_offset
         x_off = self._shop_x_offset
         for customer in self.customers:
             if customer.done:
                 continue
-            sprite = shop_assets.get_customer_sprite(customer.sprite_id, (customer_size, customer_size))
+
+            # Exactly one visual asset per customer.
+            sprite: pygame.Surface | None = None
+            if customer.avatar_card_id:
+                sprite = asset_mgr.get_card_sprite(customer.avatar_card_id, (customer_size, customer_size))
+            if sprite is None:
+                sprite = shop_assets.get_customer_sprite(customer.sprite_id, (customer_size, customer_size))
+
             if sprite:
                 sprite_x = int(customer.pos.x - customer_size // 2 + x_off)
                 sprite_y = int(customer.pos.y - customer_size + 8 + y_off)
                 surface.blit(sprite, (sprite_x, sprite_y))
             else:
-                rect = pygame.Rect(customer.pos.x - 10 + x_off, customer.pos.y - 10 + y_off, 20, 20)
+                rect = pygame.Rect(customer.pos.x - customer_size // 2 + x_off, customer.pos.y - customer_size + 8 + y_off, customer_size, customer_size)
                 pygame.draw.rect(surface, (200, 200, 120), rect)
+
+            if customer.comment_text:
+                msg = self.theme.render_text(self.theme.font_small, customer.comment_text, self.theme.colors.text)
+                bubble = msg.get_rect(midbottom=(int(customer.pos.x + x_off), int(customer.pos.y - customer_size + y_off - 4)))
+                bg = bubble.inflate(10, 6)
+                pygame.draw.rect(surface, self.theme.colors.panel, bg, border_radius=6)
+                pygame.draw.rect(surface, self.theme.colors.border, bg, 1, border_radius=6)
+                surface.blit(msg, msg.get_rect(center=bg.center))
 
     def _draw_player(self, surface: pygame.Surface) -> None:
         """Draw staff actor + XP bar + level indicator (clipped to shop viewport)."""
